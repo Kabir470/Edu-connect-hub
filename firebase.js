@@ -1,10 +1,11 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+// Firebase initialization tailored for React Native / Expo
+import { initializeApp, getApps, getApp } from "firebase/app";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+// Ensure the auth component is registered and use RN persistence
+// Register auth component and use RN persistence
+import 'firebase/auth';
+import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -18,8 +19,20 @@ const firebaseConfig = {
   measurementId: "G-LJXHJ3KMNQ"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-export const auth = getAuth(app);
+// Initialize Firebase app once (supports Fast Refresh)
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+// Initialize or retrieve Auth with React Native persistence
+let authInstance;
+try {
+  authInstance = getAuth(app);
+} catch (e) {
+  authInstance = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+}
+
+export const auth = authInstance;
+
+// Firestore can be initialized normally
 export const db = getFirestore(app);

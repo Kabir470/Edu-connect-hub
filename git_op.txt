@@ -1,0 +1,6 @@
+git status // to show edits
+git remote -v // to see git origin
+git branch // to see branches like main, aliur, farhad
+git checkout -b branch_name // to create branches like farhad, aliur,  koushik
+git checkout -d branch_name // delete a branch
+git 

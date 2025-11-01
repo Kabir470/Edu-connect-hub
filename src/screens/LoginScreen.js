@@ -14,7 +14,7 @@ const ROLES = [
   { key: 'admin', label: 'Admin', icon: 'shield-checkmark-outline' },
 ];
 
-const LoginScreen = () => {
+const LoginScreen = ({navigation}) => {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,6 +44,11 @@ const LoginScreen = () => {
       setLoading(false);
     }
   };
+
+  const handleSignUp = () => {
+    // Navigate to Signup Screen
+    navigation.navigate('SignupScreen');
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -112,6 +117,10 @@ const LoginScreen = () => {
 
           {/* Actions */}
           <AppButton title="Sign In" icon="log-in-outline" onPress={handleLogin} loading={loading} />
+
+          {/* Sign Up Button */}
+          <AppButton textStyle={{color: 'black'}} style={{backgroundColor: 'white', marginTop: 15}} title="Sign Up" icon="log-in-outline" onPress={handleSignUp} loading={loading} />
+
 
           <TouchableOpacity style={styles.linkRow}>
             <Text style={styles.linkText}>Forgot password?</Text>

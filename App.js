@@ -8,6 +8,8 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import colors from './src/constants/colors';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen from './src/screens/LoginScreen';
+import SignupScreen from './src/screens/SignupScreen';
+
 
 // Import Screens
 import HomeScreen from './src/screens/HomeScreen';
@@ -22,6 +24,7 @@ import ChatScreen from './src/screens/ChatScreen';
 import CreatePostScreen from './src/screens/CreatePostScreen';
 import CreateJobScreen from './src/screens/CreateJobScreen';
 import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
+
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -108,6 +111,25 @@ function ExpertsStack() {
   );
 }
 
+// Experts Stack Navigator
+function AuthNavigator() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen 
+        name="LoginScreen" 
+        component={LoginScreen}
+        options={{ title: 'Log In' }}
+      />
+      <Stack.Screen 
+        name="SignupScreen" 
+        component={SignupScreen}
+        options={{ title: 'Sign Up' }}
+      />
+
+    </Stack.Navigator>
+  );
+}
+
 // Main Tab Navigator
 function TabNavigator() {
   const insets = useSafeAreaInsets();
@@ -183,7 +205,7 @@ function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {!user ? (
-        <Stack.Screen name="Auth" component={LoginScreen} />
+        <Stack.Screen name="Auth" component={AuthNavigator} />
       ) : (
         <Stack.Screen name="Main" component={TabNavigator} />
       )}

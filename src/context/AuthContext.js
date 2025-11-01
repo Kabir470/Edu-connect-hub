@@ -1,50 +1,56 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../../firebase';
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut as firebaseSignOut 
+} from 'firebase/auth';
 
-// Simple auth context to store login state and selected role
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null); // { email, role }
+  const [user, setUser] = useState(null); // { uid, email, role, name }
   const [bootstrapped, setBootstrapped] = useState(false);
 
-  const signIn = async ({ email, password, role }) => {
-    // NOTE: Replace with real API call. For now we simulate success after basic validation.
-    if (!email || !password || !role) {
-      throw new Error('Missing credentials');
-    }
-    // Simulate a network delay
-    await new Promise((res) => setTimeout(res, 400));
-    const u = { email, role };
-    setUser(u);
-    await AsyncStorage.setItem('auth:user', JSON.stringify(u));
+  // ✅ Sign Up
+  const signUp = async ({ email, password }) => {
+    // Just create auth user
+    const res = await createUserWithEmailAndPassword(auth, email, password);
+    // No Firestore write
+    return res.user; // you can return uid/email to caller
   };
 
+  // ✅ Login
+  const signIn = async ({ email, password, role }) => {
+    const res = await signInWithEmailAndPassword(auth, email, password);
+    const userData = { uid: res.user.uid, email: res.user.email, role };
+    setUser(userData);
+    await AsyncStorage.setItem('auth:user', JSON.stringify(userData));
+  };
+
+  // ✅ Logout
   const signOut = async () => {
+    await firebaseSignOut(auth);
     setUser(null);
     await AsyncStorage.removeItem('auth:user');
   };
 
+  // ✅ Bootstrap from AsyncStorage
   useEffect(() => {
     (async () => {
-      try {
-        const raw = await AsyncStorage.getItem('auth:user');
-        if (raw) setUser(JSON.parse(raw));
-      } finally {
-        setBootstrapped(true);
-      }
+      const raw = await AsyncStorage.getItem('auth:user');
+      if (raw) setUser(JSON.parse(raw));
+      setBootstrapped(true);
     })();
   }, []);
 
-  const value = useMemo(() => ({ user, signIn, signOut, bootstrapped }), [user, bootstrapped]);
+  const value = useMemo(() => ({
+    user, bootstrapped, signIn, signUp, signOut
+  }), [user, bootstrapped]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
-  return ctx;
-};
-
+export const useAuth = () => useContext(AuthContext);
 export default AuthContext;

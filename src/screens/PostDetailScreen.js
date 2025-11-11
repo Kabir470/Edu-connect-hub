@@ -9,15 +9,20 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Share,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { db } from '../../firebase';
+import { doc, updateDoc, increment } from 'firebase/firestore';
 
 const PostDetailScreen = ({ route, navigation }) => {
   const { post } = route.params;
   const [comment, setComment] = useState('');
   const [liked, setLiked] = useState(false);
+  const [shares, setShares] = useState(post.shares || 0);
   const [comments, setComments] = useState([
     {
       id: '1',
@@ -49,6 +54,51 @@ const PostDetailScreen = ({ route, navigation }) => {
       };
       setComments([...comments, newComment]);
       setComment('');
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      let shareOptions = {
+        message: post.content,
+      };
+
+      // If there's an image, share its URL as well.
+      // On iOS, the URL can be passed directly. On Android, it's better to include it in the message.
+      if (post.image) {
+        if (Platform.OS === 'ios') {
+          shareOptions.url = post.image;
+        } else {
+          shareOptions.message = `${post.content}\n\nImage: ${post.image}`;
+        }
+      }
+
+      const result = await Share.share(shareOptions);
+
+      if (result.action === Share.sharedAction) {
+        setShares((prev) => prev + 1);
+        if (post.id) {
+          try {
+            const ref = doc(db, 'posts', post.id);
+            await updateDoc(ref, { shares: increment(1) });
+          } catch (err) {
+            console.log('Failed to update share count in Firestore:', err);
+          }
+        }
+        if (result.activityType) {
+          // Shared with activity type of result.activityType
+          console.log('Post shared with activity type:', result.activityType);
+        } else {
+          // Shared
+          console.log('Post shared successfully');
+        }
+      } else if (result.action === Share.dismissedAction) {
+        // Dismissed
+        console.log('Share action was dismissed');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to share the post. Please try again.');
+      console.error('Error sharing post:', error.message);
     }
   };
 
@@ -85,7 +135,7 @@ const PostDetailScreen = ({ route, navigation }) => {
             <Text style={styles.statsText}>{liked ? post.likes + 1 : post.likes} likes</Text>
             <View style={styles.statsRight}>
               <Text style={styles.statsText}>{comments.length} comments</Text>
-              <Text style={styles.statsText}> • {post.shares} shares</Text>
+              <Text style={styles.statsText}> • {shares} shares</Text>
             </View>
           </View>
 
@@ -108,7 +158,7 @@ const PostDetailScreen = ({ route, navigation }) => {
               <Text style={styles.actionText}>Comment</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
               <Ionicons name="share-social-outline" size={24} color={colors.mediumGray} />
               <Text style={styles.actionText}>Share</Text>
             </TouchableOpacity>

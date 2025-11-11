@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,72 +11,27 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { db } from '../../firebase';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 
 const HomeScreen = ({ navigation }) => {
   const { user } = useAuth();
-  const [posts, setPosts] = useState([
-    {
-      id: '1',
-      author: 'Dr. Aliur Rahman',
-      role: 'Professor of Computer Science',
-      avatar: require('../../assets/aliur-rahman.jpg'),
-      time: '2h ago',
-      content: 'Just published a new research paper on Machine Learning applications in Healthcare. Check it out! 🎓',
-      likes: 124,
-      comments: 23,
-      shares: 15,
-      image: null,
-    },
-    {
-      id: '2',
-      author: 'Shahriar Kabir',
-      role: 'PhD Student',
-      avatar: require('../../assets/shahriar-kabir.jpg'),
-      time: '4h ago',
-      content: 'Looking for collaboration on my thesis about Quantum Computing. Anyone interested?',
-      likes: 45,
-      comments: 12,
-      shares: 5,
-      image: null,
-    },
-    {
-      id: '3',
-      author: 'Prof. Koushik Hasan',
-      role: 'Research Director',
-      avatar: require('../../assets/koushik-hasan.jpg'),
-      time: '6h ago',
-      content: 'Exciting breakthrough in our lab! Our team has developed a new algorithm that improves efficiency by 40%.',
-      likes: 256,
-      comments: 45,
-      shares: 67,
-      image: require('../../assets/lab.jpg'),
-    },
-    {
-      id: '4',
-      author: 'Farhad Mahmud',
-      role: 'Graduate Student',
-      avatar: require('../../assets/farhad-mahmud.jpg'),
-      time: '1d ago',
-      content: 'Attending the International AI Conference next week. Who else is going? Would love to connect! 🤝',
-      likes: 89,
-      comments: 34,
-      shares: 12,
-      image: null,
-    },
-    {
-      id: '5',
-      author: 'Tanha',
-      role: 'Research Assistant',
-      avatar: require('../../assets/tanha.jpg'),
-      time: '2d ago',
-      content: 'Excited to share my latest findings on Neural Networks and Deep Learning! The future of AI is incredibly promising. 🚀✨',
-      likes: 167,
-      comments: 28,
-      shares: 19,
-      image: require('../../assets/tanha.jpg'),
-    },
-  ]);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setPosts(items);
+      setLoading(false);
+    }, (e) => {
+      console.error('Feed subscribe error', e);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const [likedPosts, setLikedPosts] = useState({});
 
@@ -105,11 +60,11 @@ const HomeScreen = ({ navigation }) => {
     >
       {/* Post Header */}
       <View style={styles.postHeader}>
-        <Image source={item.avatar} style={styles.avatar} />
+        <Image source={item.userPhotoURL ? { uri: item.userPhotoURL } : require('../../assets/shahriar-kabir.jpg')} style={styles.avatar} />
         <View style={styles.authorInfo}>
-          <Text style={styles.authorName}>{item.author}</Text>
-          <Text style={styles.authorRole}>{item.role}</Text>
-          <Text style={styles.postTime}>{item.time}</Text>
+          <Text style={styles.authorName}>{item.userName || item.userEmail || 'User'}</Text>
+          <Text style={styles.authorRole}>{item.role || ''}</Text>
+          <Text style={styles.postTime}>{formatRelativeTime(item.createdAt)}</Text>
         </View>
         <Ionicons name="ellipsis-horizontal" size={24} color={colors.mediumGray} />
       </View>
@@ -125,43 +80,24 @@ const HomeScreen = ({ navigation }) => {
         />
       )}
 
-      {/* Post Stats */}
-      <View style={styles.postStats}>
-        <Text style={styles.statsText}>{item.likes} likes</Text>
-        <View style={styles.statsRight}>
-          <Text style={styles.statsText}>{item.comments} comments</Text>
-          <Text style={styles.statsText}> • {item.shares} shares</Text>
-        </View>
-      </View>
-
-      {/* Post Actions */}
-      <View style={styles.postActions}>
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleLike(item.id)}
-        >
-          <Ionicons 
-            name={likedPosts[item.id] ? "heart" : "heart-outline"} 
-            size={24} 
-            color={likedPosts[item.id] ? colors.danger : colors.mediumGray} 
-          />
-          <Text style={[styles.actionText, likedPosts[item.id] && styles.actionTextActive]}>
-            Like
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="chatbubble-outline" size={24} color={colors.mediumGray} />
-          <Text style={styles.actionText}>Comment</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="share-social-outline" size={24} color={colors.mediumGray} />
-          <Text style={styles.actionText}>Share</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Post Actions (optional, minimal for now) */}
     </TouchableOpacity>
   );
+
+  const formatRelativeTime = (ts) => {
+    if (!ts || !ts.seconds) return '';
+    const date = new Date(ts.seconds * 1000);
+    const diffMs = Date.now() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return date.toLocaleDateString();
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -171,14 +107,23 @@ const HomeScreen = ({ navigation }) => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={loading ? (
+          <View style={{ padding: 24, alignItems: 'center' }}>
+            <Text style={{ color: colors.textLight }}>Loading posts...</Text>
+          </View>
+        ) : (
+          <View style={{ padding: 24, alignItems: 'center' }}>
+            <Text style={{ color: colors.textLight }}>No posts yet. Be the first to post!</Text>
+          </View>
+        )}
         ListHeaderComponent={() => (
-          (['expert', 'teacher', 'admin'].includes(user?.role)) ? (
+          (user) ? (
             <TouchableOpacity 
               style={styles.createPostButton}
               onPress={() => navigation.navigate('CreatePost')}
             >
               <Image 
-                source={require('../../assets/shahriar-kabir.jpg')} 
+                source={user.profileImageURL ? { uri: user.profileImageURL } : require('../../assets/shahriar-kabir.jpg')} 
                 style={styles.smallAvatar} 
               />
               <Text style={styles.createPostText}>Share your thoughts...</Text>

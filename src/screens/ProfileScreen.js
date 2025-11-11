@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,23 +12,42 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 const ProfileScreen = ({ navigation }) => {
   const { signOut, user } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
 
-  const profileData = {
-    name: 'Shahriar Kabir',
-    email: 'shahriar.kabir@university.edu',
-  role: user?.role ? user.role[0].toUpperCase() + user.role.slice(1) : 'PhD Student',
-    institution: 'Massachusetts Institute of Technology',
-    avatar: require('../../assets/shahriar-kabir.jpg'),
-    bio: 'Passionate researcher in AI and Machine Learning. Looking to collaborate on innovative projects.',
-    followers: 1245,
-    following: 856,
-    posts: 142,
-  };
+  const [profileData, setProfileData] = useState(null);
+
+  useEffect(() => {
+    const load = async () => {
+      if (!user?.uid) return;
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          const d = snap.data();
+          setProfileData({
+            name: d.fullName || 'Unnamed',
+            email: d.email || user.email,
+            role: (d.role || user.role || 'user').toUpperCase(),
+            institution: d.address || '—',
+            avatar: d.profileImageURL ? { uri: d.profileImageURL } : require('../../assets/shahriar-kabir.jpg'),
+            bio: d.bio || 'No bio provided.',
+            followers: d.followers || 0,
+            following: d.following || 0,
+            posts: d.posts || 0,
+            status: d.status,
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to load profile', e);
+      }
+    };
+    load();
+  }, [user]);
 
   const menuSections = [
     {
@@ -67,38 +86,40 @@ const ProfileScreen = ({ navigation }) => {
         {/* Profile Header */}
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
-            <Image source={profileData.avatar} style={styles.avatar} />
+            <Image source={(profileData?.avatar) || require('../../assets/shahriar-kabir.jpg')} style={styles.avatar} />
             <TouchableOpacity style={styles.editAvatarButton}>
               <Ionicons name="camera" size={20} color={colors.white} />
             </TouchableOpacity>
           </View>
-
-          <Text style={styles.name}>{profileData.name}</Text>
-          <Text style={styles.role}>{profileData.role}</Text>
-          <Text style={styles.institution}>{profileData.institution}</Text>
-          <Text style={styles.email}>{profileData.email}</Text>
+          <Text style={styles.name}>{profileData?.name || 'Loading...'}</Text>
+          <Text style={styles.role}>{profileData?.role || ''}</Text>
+          <Text style={styles.institution}>{profileData?.institution || ''}</Text>
+          <Text style={styles.email}>{profileData?.email || ''}</Text>
+          {profileData?.status === 'pending' && (
+            <Text style={{ color: colors.warning, marginTop: 4 }}>Pending verification</Text>
+          )}
 
           {/* Stats */}
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profileData.posts}</Text>
+              <Text style={styles.statValue}>{profileData?.posts || 0}</Text>
               <Text style={styles.statLabel}>Posts</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profileData.followers}</Text>
+              <Text style={styles.statValue}>{profileData?.followers || 0}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profileData.following}</Text>
+              <Text style={styles.statValue}>{profileData?.following || 0}</Text>
               <Text style={styles.statLabel}>Following</Text>
             </View>
           </View>
 
           {/* Bio */}
           <View style={styles.bioContainer}>
-            <Text style={styles.bio}>{profileData.bio}</Text>
+            <Text style={styles.bio}>{profileData?.bio || 'No bio provided.'}</Text>
           </View>
 
           {/* Action Buttons */}

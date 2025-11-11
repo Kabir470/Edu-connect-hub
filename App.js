@@ -1,4 +1,5 @@
 import React from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -24,6 +25,8 @@ import ChatScreen from './src/screens/ChatScreen';
 import CreatePostScreen from './src/screens/CreatePostScreen';
 import CreateJobScreen from './src/screens/CreateJobScreen';
 import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
+import ManageUsersScreen from './src/screens/ManageUsersScreen';
+import PendingVerificationScreen from './src/screens/PendingVerificationScreen';
 
 
 const Tab = createBottomTabNavigator();
@@ -111,7 +114,7 @@ function ExpertsStack() {
   );
 }
 
-// Experts Stack Navigator
+// Auth Stack Navigator
 function AuthNavigator() {
   return (
     <Stack.Navigator>
@@ -126,6 +129,24 @@ function AuthNavigator() {
         options={{ title: 'Sign Up' }}
       />
 
+    </Stack.Navigator>
+  );
+}
+
+// Admin Stack Navigator
+function AdminStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen 
+        name="AdminDashboard" 
+        component={AdminDashboardScreen}
+        options={{ title: 'Admin Dashboard', headerShown: true }}
+      />
+      <Stack.Screen 
+        name="AdminManageUsers" 
+        component={ManageUsersScreen}
+        options={{ title: 'Manage Users' }}
+      />
     </Stack.Navigator>
   );
 }
@@ -185,7 +206,7 @@ function TabNavigator() {
       <Tab.Screen name="Messages" component={MessagesStack} />
       <Tab.Screen name="Experts" component={ExpertsStack} />
       {user?.role === 'admin' && (
-        <Tab.Screen name="Admin" component={AdminDashboardScreen} />
+        <Tab.Screen name="Admin" component={AdminStack} />
       )}
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
@@ -193,19 +214,25 @@ function TabNavigator() {
 }
 
 // Decides between Auth flow and Main app based on auth state
+// Simple Splash Screen component for bootstrapping phase
+function SplashScreen() {
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
+      <ActivityIndicator size="large" color={colors.primary} />
+    </View>
+  );
+}
+
 function RootNavigator() {
   const { user, bootstrapped } = useAuth();
-  if (!bootstrapped) {
-    return (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Splash" component={() => null} />
-      </Stack.Navigator>
-    );
-  }
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {!user ? (
+      {!bootstrapped ? (
+        <Stack.Screen name="Splash" component={SplashScreen} />
+      ) : !user ? (
         <Stack.Screen name="Auth" component={AuthNavigator} />
+      ) : user.status && user.status !== 'approved' ? (
+        <Stack.Screen name="Pending" component={PendingVerificationScreen} />
       ) : (
         <Stack.Screen name="Main" component={TabNavigator} />
       )}

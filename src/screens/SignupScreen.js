@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
 import AppTextInput from '../components/AppTextInput';
 import AppButton from '../components/AppButton';
 
@@ -21,6 +22,10 @@ const SignUpScreen = ({navigation}) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState('user');
+  const [address, setAddress] = useState('');
+  const [nidNumber, setNidNumber] = useState('');
+  const [profileImageUri, setProfileImageUri] = useState(null);
+  const [nidImageUri, setNidImageUri] = useState(null);
   const [secure, setSecure] = useState(true);
   const [secure2, setSecure2] = useState(true);
   const [error, setError] = useState('');
@@ -30,8 +35,9 @@ const SignUpScreen = ({navigation}) => {
     setError('');
 
     if (!fullName.trim()) return setError('Please enter your full name.');
-    if (!email.trim() || !password || !confirmPassword)
-      return setError('Please fill all fields.');
+    if (!email.trim() || !password || !confirmPassword || !address.trim() || !nidNumber.trim())
+      return setError('Please fill all fields including address and NID number.');
+    if (!profileImageUri || !nidImageUri) return setError('Profile photo and NID image are required.');
 
     const emailRe = /\S+@\S+\.\S+/;
     if (!emailRe.test(email.trim())) return setError('Invalid email format.');
@@ -43,15 +49,19 @@ const SignUpScreen = ({navigation}) => {
     try {
       setLoading(true);
       const checkSignup = await signUp({
-        name: fullName.trim(),
+        fullName: fullName.trim(),
         email: email.trim(),
         password,
         role,
+        address: address.trim(),
+        nidNumber: nidNumber.trim(),
+        profileImageUri,
+        nidImageUri,
       });
       console.log('checkSignup',checkSignup);
       
-      alert("Success", "Account created. Please login.");
-      navigation.navigate("LoginScreen");
+  Alert.alert('Submitted', 'Your application is under verification. You can log in once approved.');
+  navigation.navigate('LoginScreen');
     } catch (e) {
       setError(e?.message || 'Signup failed. Try again.');
     } finally {
@@ -119,6 +129,16 @@ const SignUpScreen = ({navigation}) => {
           </View>
 
           <View style={styles.field}>
+            <Text style={styles.label}>Address</Text>
+            <AppTextInput
+              value={address}
+              onChangeText={setAddress}
+              placeholder="House, Road, City"
+              leftIcon={<Ionicons name="home-outline" size={20} color={colors.textLight} />}
+            />
+          </View>
+
+          <View style={styles.field}>
             <Text style={styles.label}>Email</Text>
             <AppTextInput
               value={email}
@@ -127,6 +147,17 @@ const SignUpScreen = ({navigation}) => {
               keyboardType="email-address"
               autoCapitalize="none"
               leftIcon={<Ionicons name="mail-outline" size={20} color={colors.textLight} />}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>NID Number</Text>
+            <AppTextInput
+              value={nidNumber}
+              onChangeText={setNidNumber}
+              placeholder="Enter your National ID number"
+              keyboardType="number-pad"
+              leftIcon={<Ionicons name="id-card-outline" size={20} color={colors.textLight} />}
             />
           </View>
 
@@ -168,6 +199,53 @@ const SignUpScreen = ({navigation}) => {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
+
+          {/* Media pickers */}
+          <View style={[styles.field, { marginTop: 6 }]}> 
+            <Text style={styles.label}>Profile Photo</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              {profileImageUri ? (
+                <Image source={{ uri: profileImageUri }} style={{ width: 64, height: 64, borderRadius: 32 }} />
+              ) : (
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.lightGray }} />
+              )}
+              <TouchableOpacity
+                style={styles.pickBtn}
+                onPress={async () => {
+                  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (status !== 'granted') return Alert.alert('Permission needed', 'Allow gallery access.');
+                  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+                  if (!res.canceled && res.assets?.length) setProfileImageUri(res.assets[0].uri);
+                }}
+              >
+                <Ionicons name="image-outline" size={18} color={colors.white} />
+                <Text style={styles.pickText}>Choose</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.field}> 
+            <Text style={styles.label}>NID (front)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              {nidImageUri ? (
+                <Image source={{ uri: nidImageUri }} style={{ width: 96, height: 64, borderRadius: 8 }} />
+              ) : (
+                <View style={{ width: 96, height: 64, borderRadius: 8, backgroundColor: colors.lightGray }} />
+              )}
+              <TouchableOpacity
+                style={styles.pickBtn}
+                onPress={async () => {
+                  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (status !== 'granted') return Alert.alert('Permission needed', 'Allow gallery access.');
+                  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+                  if (!res.canceled && res.assets?.length) setNidImageUri(res.assets[0].uri);
+                }}
+              >
+                <Ionicons name="image-outline" size={18} color={colors.white} />
+                <Text style={styles.pickText}>Choose</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
 
           <AppButton title="Sign Up" icon="person-add-outline" onPress={handleSignUp} loading={loading} />
 

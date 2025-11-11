@@ -12,26 +12,85 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { db, storage } from '../../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import * as ImagePicker from 'expo-image-picker';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useAuth } from '../context/AuthContext';
 
 const CreatePostScreen = ({ navigation }) => {
   const [content, setContent] = useState('');
-  const [image, setImage] = useState(null);
+  const [image, setImage] = useState(null); // local uri
+  const [imageType, setImageType] = useState(null); // mime type
+  const [submitting, setSubmitting] = useState(false);
+  const { user } = useAuth();
 
-  const handlePost = () => {
-    if (content.trim()) {
+  const handlePost = async () => {
+    if (!content.trim()) {
+      Alert.alert('Error', 'Please write something to post');
+      return;
+    }
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+    try {
+      setSubmitting(true);
+      let mediaUrl = null;
+      if (image) {
+        const response = await fetch(image);
+        const blob = await response.blob();
+        const ext = imageType?.includes('video') ? 'mp4' : 'jpg';
+        const fileName = `${user.uid}_${Date.now()}.${ext}`;
+        const storageRef = ref(storage, `posts/${fileName}`);
+        await uploadBytes(storageRef, blob, { contentType: imageType || 'application/octet-stream' });
+        mediaUrl = await getDownloadURL(storageRef);
+      }
+
+      const userName = user.email?.split('@')[0] || 'User';
+      await addDoc(collection(db, 'posts'), {
+        content: content.trim(),
+        image: mediaUrl,
+        userId: user.uid,
+        userEmail: user.email,
+        userName,
+        role: user.role || null,
+        userPhotoURL: user.profileImageURL || null,
+        createdAt: serverTimestamp(),
+      });
+      setContent('');
+      setImage(null);
+      setImageType(null);
       Alert.alert('Success', 'Post published successfully!', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
-    } else {
-      Alert.alert('Error', 'Please write something to post');
+    } catch (e) {
+      console.error('Post create error', e);
+      Alert.alert('Error', e.message || 'Failed to publish post');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleAddImage = () => {
-    // Placeholder for image picker
-    Alert.alert('Image Picker', 'Image picker would be implemented here');
+  const handleAddImage = async () => {
+    // Ask permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow access to your media library to attach images or videos.');
+      return;
+    }
+    // Launch picker allowing images and videos
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: false,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setImage(asset.uri);
+      setImageType(asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'));
+    }
   };
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -112,11 +171,14 @@ const CreatePostScreen = ({ navigation }) => {
       {/* Post Button */}
       <View style={styles.bottomBar}>
         <TouchableOpacity 
-          style={[styles.postButton, !content.trim() && styles.postButtonDisabled]}
+          style={[
+            styles.postButton, 
+            (!content.trim() || submitting) && styles.postButtonDisabled
+          ]}
           onPress={handlePost}
-          disabled={!content.trim()}
+          disabled={!content.trim() || submitting}
         >
-          <Text style={styles.postButtonText}>Post</Text>
+          <Text style={styles.postButtonText}>{submitting ? 'Posting...' : 'Post'}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

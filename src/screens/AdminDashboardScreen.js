@@ -31,7 +31,10 @@ const AdminDashboardScreen = ({ navigation }) => {
             <Text style={styles.tileText}>Post Job</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.tile, { backgroundColor: colors.accent }]}>
+          <TouchableOpacity
+            style={[styles.tile, { backgroundColor: colors.accent }]}
+            onPress={() => navigation.navigate('AdminManageUsers')}
+          >
             <Ionicons name="people-outline" size={24} color={colors.white} />
             <Text style={styles.tileText}>Manage Users</Text>
           </TouchableOpacity>

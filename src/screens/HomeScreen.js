@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+﻿import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   View,
@@ -443,7 +443,7 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.statsText}>{likesCount} likes</Text>
           <View style={styles.statsRight}>
             <Text style={styles.statsText}>{commentsCount} comments</Text>
-            <Text style={styles.statsText}> • {sharesCount} shares</Text>
+            <Text style={styles.statsText}> ΓÇó {sharesCount} shares</Text>
           </View>
         </View>
 
@@ -702,7 +702,7 @@ const HomeScreen = ({ navigation }) => {
               disabled={shareSaving}
             >
               <Text style={styles.shareModalConfirmText}>
-                {shareSaving ? 'Sharing…' : 'Share'}
+                {shareSaving ? 'SharingΓÇª' : 'Share'}
               </Text>
             </TouchableOpacity>
           </View>

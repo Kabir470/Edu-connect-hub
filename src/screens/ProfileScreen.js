@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,17 +9,25 @@ import {
   Switch,
   Share,
   Modal,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  approveFollowRequest,
+  rejectFollowRequest,
+  subscribeToIncomingRequests,
+} from '../utils/followService';
 
 const PREFERENCES_STORAGE_KEY = 'profile:preferences';
 const LANGUAGE_OPTIONS = ['English (US)', 'English (UK)', 'Bangla', 'Hindi', 'Spanish'];
+const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
 const ProfileScreen = ({ navigation }) => {
   const { signOut, user } = useAuth();
@@ -30,6 +38,9 @@ const ProfileScreen = ({ navigation }) => {
   const [savingPreference, setSavingPreference] = useState(false);
 
   const [profileData, setProfileData] = useState(null);
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [requestActioningId, setRequestActioningId] = useState(null);
 
   const applyPreferenceState = (prefs = {}) => {
     if (typeof prefs.notificationsEnabled === 'boolean') setNotificationsEnabled(prefs.notificationsEnabled);
@@ -78,6 +89,69 @@ const ProfileScreen = ({ navigation }) => {
     persistPreferences({ language: value });
   };
 
+  const handleRequestAction = async (request, action) => {
+    if (!user?.uid || !request?.id) return;
+    try {
+      setRequestActioningId(request.id);
+      if (action === 'accept') {
+        await approveFollowRequest({
+          followDocId: request.id,
+          followerId: request.followerId,
+          targetUser: user,
+        });
+      } else {
+        await rejectFollowRequest({
+          followDocId: request.id,
+          followerId: request.followerId,
+          targetUser: user,
+        });
+      }
+    } catch (error) {
+      console.warn('Follow request update failed', error);
+      Alert.alert('Unable to update request', 'Please try again in a moment.');
+    } finally {
+      setRequestActioningId(null);
+    }
+  };
+
+  const hydrateRequests = useCallback(
+    async (requests = [], { signal } = {}) => {
+      if (signal?.aborted) return;
+      if (!requests.length) {
+        setIncomingRequests([]);
+        setRequestsLoading(false);
+        return;
+      }
+      setRequestsLoading(true);
+      try {
+        const enriched = await Promise.all(
+          requests.map(async (request) => {
+            if (signal?.aborted) return null;
+            try {
+              const snap = await getDoc(doc(db, 'users', request.followerId));
+              const followerProfile = snap.exists() ? snap.data() : null;
+              return { ...request, followerProfile };
+            } catch (error) {
+              console.warn('Failed to load follower profile', error);
+              return { ...request, followerProfile: null };
+            }
+          })
+        );
+        if (signal?.aborted) return;
+        setIncomingRequests(enriched.filter(Boolean));
+      } catch (error) {
+        if (!signal?.aborted) {
+          console.warn('Failed to hydrate follow requests', error);
+        }
+      } finally {
+        if (!signal?.aborted) {
+          setRequestsLoading(false);
+        }
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     (async () => {
       try {
@@ -90,34 +164,48 @@ const ProfileScreen = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
-    const load = async () => {
-      if (!user?.uid) return;
-      try {
-        const snap = await getDoc(doc(db, 'users', user.uid));
-        if (snap.exists()) {
-          const d = snap.data();
-          setProfileData({
-            name: d.fullName || 'Unnamed',
-            email: d.email || user.email,
-            role: (d.role || user.role || 'user').toUpperCase(),
-            institution: d.address || '—',
-            avatar: d.profileImageURL ? { uri: d.profileImageURL } : require('../../assets/shahriar-kabir.jpg'),
-            bio: d.bio || 'No bio provided.',
-            followers: d.followers || 0,
-            following: d.following || 0,
-            posts: d.posts || 0,
-            status: d.status,
-          });
-          if (d.preferences) {
-            applyPreferenceState(d.preferences);
-          }
+    if (!user?.uid) return undefined;
+    const unsubscribe = onSnapshot(
+      doc(db, 'users', user.uid),
+      (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data();
+        setProfileData({
+          name: d.fullName || 'Unnamed',
+          email: d.email || user.email,
+          role: (d.role || user.role || 'user').toUpperCase(),
+          institution: d.address || '—',
+          avatar: d.profileImageURL ? { uri: d.profileImageURL } : DEFAULT_AVATAR,
+          bio: d.bio || 'No bio provided.',
+          followers: d.followers || 0,
+          following: d.following || 0,
+          posts: d.posts || 0,
+          status: d.status,
+        });
+        if (d.preferences) {
+          applyPreferenceState(d.preferences);
         }
-      } catch (e) {
-        console.warn('Failed to load profile', e);
-      }
+      },
+      (error) => console.warn('Failed to load profile', error)
+    );
+    return () => unsubscribe();
+  }, [user?.uid, user?.email, user?.role]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setIncomingRequests([]);
+      setRequestsLoading(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const unsubscribe = subscribeToIncomingRequests(user.uid, (items = []) => {
+      hydrateRequests(items, { signal: controller.signal });
+    });
+    return () => {
+      controller.abort();
+      unsubscribe();
     };
-    load();
-  }, [user]);
+  }, [user?.uid, hydrateRequests]);
 
   const menuSections = [
     {
@@ -198,7 +286,7 @@ const ProfileScreen = ({ navigation }) => {
         {/* Profile Header */}
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
-            <Image source={(profileData?.avatar) || require('../../assets/shahriar-kabir.jpg')} style={styles.avatar} />
+            <Image source={profileData?.avatar || DEFAULT_AVATAR} style={styles.avatar} />
             <TouchableOpacity style={styles.editAvatarButton}>
               <Ionicons name="camera" size={20} color={colors.white} />
             </TouchableOpacity>
@@ -246,6 +334,85 @@ const ProfileScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
         </View>
+
+        {user?.uid ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Follow requests</Text>
+              {requestsLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Text style={styles.sectionMeta}>
+                  {incomingRequests.length ? `${incomingRequests.length} pending` : 'None pending'}
+                </Text>
+              )}
+            </View>
+            {requestsLoading ? (
+              <View style={styles.requestsLoadingWrap}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : incomingRequests.length ? (
+              incomingRequests.map((request) => {
+                const follower = request.followerProfile || {};
+                const avatarSource = follower.profileImageURL ? { uri: follower.profileImageURL } : DEFAULT_AVATAR;
+                const subtitle = follower.username
+                  ? `@${follower.username}`
+                  : follower.email || 'AcademicConnect member';
+                const actioning = requestActioningId === request.id;
+                return (
+                  <View key={request.id} style={styles.requestCard}>
+                    <TouchableOpacity
+                      style={styles.requestInfo}
+                      activeOpacity={0.85}
+                      onPress={() =>
+                        navigation.navigate('UserProfile', {
+                          userId: request.followerId,
+                          fallback: {
+                            name: follower.fullName || 'AcademicConnect member',
+                            username: follower.username || null,
+                            avatar: follower.profileImageURL || null,
+                          },
+                        })
+                      }
+                    >
+                      <Image source={avatarSource} style={styles.requestAvatar} />
+                      <View>
+                        <Text style={styles.requestName}>{follower.fullName || 'AcademicConnect member'}</Text>
+                        <Text style={styles.requestSubtitle}>{subtitle}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <View style={styles.requestButtonsRow}>
+                      <TouchableOpacity
+                        style={[styles.requestButton, styles.requestDeclineButton]}
+                        onPress={() => handleRequestAction(request, 'decline')}
+                        disabled={actioning}
+                      >
+                        {actioning ? (
+                          <ActivityIndicator size="small" color={colors.white} />
+                        ) : (
+                          <Text style={styles.requestButtonText}>Decline</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.requestButton, styles.requestAcceptButton]}
+                        onPress={() => handleRequestAction(request, 'accept')}
+                        disabled={actioning}
+                      >
+                        {actioning ? (
+                          <ActivityIndicator size="small" color={colors.white} />
+                        ) : (
+                          <Text style={styles.requestButtonText}>Accept</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={styles.emptyRequestText}>No pending follow requests right now.</Text>
+            )}
+          </View>
+        ) : null}
 
         {/* Menu Sections */}
         {menuSections.map((section, sectionIndex) => (
@@ -486,12 +653,78 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     paddingHorizontal: 15,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionMeta: {
+    fontSize: 13,
+    color: colors.textLight,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: colors.text,
     marginBottom: 12,
     marginLeft: 5,
+  },
+  requestsLoadingWrap: {
+    paddingVertical: 12,
+  },
+  requestCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: colors.white,
+  },
+  requestInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  requestAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  requestName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  requestSubtitle: {
+    fontSize: 13,
+    color: colors.textLight,
+    marginTop: 2,
+  },
+  requestButtonsRow: {
+    flexDirection: 'row',
+    marginTop: 14,
+  },
+  requestButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  requestDeclineButton: {
+    backgroundColor: colors.danger,
+    marginRight: 10,
+  },
+  requestAcceptButton: {
+    backgroundColor: colors.success,
+  },
+  requestButtonText: {
+    color: colors.white,
+    fontWeight: '600',
+  },
+  emptyRequestText: {
+    fontSize: 14,
+    color: colors.textLight,
   },
   menuCard: {
     backgroundColor: colors.white,

@@ -14,8 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../../firebase';
-import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { mergePrivacySettings } from '../constants/privacyDefaults';
+import {
+  followUser,
+  subscribeToFollowState,
+  unfollowUser,
+  FOLLOW_STATUS,
+} from '../utils/followService';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -65,7 +71,8 @@ const UserProfileScreen = ({ route, navigation }) => {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [recentPosts, setRecentPosts] = useState([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [followState, setFollowState] = useState(null);
+  const [followBusy, setFollowBusy] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -73,9 +80,9 @@ const UserProfileScreen = ({ route, navigation }) => {
       setLoadingPosts(false);
       return;
     }
-    const loadProfile = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'users', userId));
+    const unsubscribe = onSnapshot(
+      doc(db, 'users', userId),
+      (snap) => {
         if (snap.exists()) {
           const data = snap.data();
           setProfile((prev) => ({
@@ -86,8 +93,8 @@ const UserProfileScreen = ({ route, navigation }) => {
             institution: data.address || prev.institution,
             bio: data.bio || prev.bio,
             avatarURL: data.profileImageURL || prev.avatarURL,
-            followers: data.followers || prev.followers || 0,
-            following: data.following || prev.following || 0,
+            followers: typeof data.followers === 'number' ? data.followers : prev.followers || 0,
+            following: typeof data.following === 'number' ? data.following : prev.following || 0,
             postsCount: data.posts || prev.postsCount || 0,
             status: data.status || prev.status,
             email: data.email || prev.email,
@@ -95,14 +102,24 @@ const UserProfileScreen = ({ route, navigation }) => {
             privacySettings: mergePrivacySettings(data.privacySettings),
           }));
         }
-      } catch (error) {
+        setLoadingProfile(false);
+      },
+      (error) => {
         console.warn('Failed to load member profile', error);
-      } finally {
         setLoadingProfile(false);
       }
-    };
-    loadProfile();
+    );
+    return () => unsubscribe();
   }, [userId]);
+
+  useEffect(() => {
+    if (!user?.uid || !userId || user.uid === userId) {
+      setFollowState(null);
+      return undefined;
+    }
+    const unsubscribe = subscribeToFollowState(user.uid, userId, setFollowState);
+    return () => unsubscribe();
+  }, [user?.uid, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -143,7 +160,10 @@ const UserProfileScreen = ({ route, navigation }) => {
     [profile.privacySettings]
   );
   const isOwnProfile = user?.uid === userId;
-  const profileLocked = !isOwnProfile && !appliedPrivacy.profilePublic;
+  const followStatus = followState?.status || null;
+  const isFollowing = followStatus === FOLLOW_STATUS.ACCEPTED;
+  const requestPending = followStatus === FOLLOW_STATUS.PENDING;
+  const profileLocked = !isOwnProfile && !appliedPrivacy.profilePublic && !isFollowing;
   const messagingAllowed = isOwnProfile ? false : appliedPrivacy.allowMessagesFromAll;
 
   const handleMessagePress = () => {
@@ -170,12 +190,54 @@ const UserProfileScreen = ({ route, navigation }) => {
     });
   };
 
-  const handleFollowToggle = () => {
+  const adjustFollowerCount = (delta) => {
+    setProfile((prev) => {
+      const next = Math.max(0, (prev.followers || 0) + delta);
+      return { ...prev, followers: next };
+    });
+  };
+
+  const handleFollowToggle = async () => {
     if (!user) {
       Alert.alert('Please sign in', 'Create an account or log in to follow members.');
       return;
     }
-    setIsFollowing((prev) => !prev);
+    if (user.uid === userId) return;
+    if (followBusy) return;
+
+    try {
+      setFollowBusy(true);
+      if (isFollowing) {
+        const res = await unfollowUser({ follower: user, targetUser: { uid: userId } });
+        if (res.status === 'unfollowed') {
+          adjustFollowerCount(-1);
+        }
+        if (res.status === 'request-cancelled') {
+          Alert.alert('Request canceled', 'Your follow request has been withdrawn.');
+        }
+      } else if (requestPending) {
+        const res = await unfollowUser({ follower: user, targetUser: { uid: userId } });
+        if (res.status === 'request-cancelled') {
+          Alert.alert('Request canceled', 'Your follow request has been withdrawn.');
+        }
+      } else {
+        const res = await followUser({
+          follower: user,
+          targetUser: { uid: userId, fullName: profile.name, privacySettings: profile.privacySettings },
+        });
+        if (res.status === 'followed') {
+          adjustFollowerCount(1);
+        }
+        if (res.status === 'requested') {
+          Alert.alert('Follow request sent', 'This member will need to approve your request.');
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to toggle follow', error);
+      Alert.alert('Something went wrong', 'We could not update your follow status. Please try again.');
+    } finally {
+      setFollowBusy(false);
+    }
   };
 
   if (!userId) {
@@ -241,18 +303,34 @@ const UserProfileScreen = ({ route, navigation }) => {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.secondaryButton, isFollowing && styles.secondaryButtonActive]}
+                style={[
+                  styles.secondaryButton,
+                  isFollowing && styles.secondaryButtonActive,
+                  requestPending && styles.secondaryButtonPending,
+                ]}
                 onPress={handleFollowToggle}
+                disabled={followBusy}
               >
-                <Ionicons
-                  name={isFollowing ? 'checkmark-circle' : 'person-add-outline'}
-                  size={18}
-                  color={isFollowing ? colors.success : colors.primary}
-                />
+                {followBusy ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={isFollowing ? colors.success : requestPending ? colors.warning : colors.primary}
+                  />
+                ) : (
+                  <Ionicons
+                    name={isFollowing ? 'checkmark-circle' : requestPending ? 'time-outline' : 'person-add-outline'}
+                    size={18}
+                    color={isFollowing ? colors.success : requestPending ? colors.warning : colors.primary}
+                  />
+                )}
                 <Text
-                  style={[styles.secondaryButtonText, isFollowing && { color: colors.success }]}
+                  style={[
+                    styles.secondaryButtonText,
+                    isFollowing && { color: colors.success },
+                    requestPending && { color: colors.warning },
+                  ]}
                 >
-                  {isFollowing ? 'Following' : 'Follow'}
+                  {isFollowing ? 'Following' : requestPending ? 'Requested' : 'Follow'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -266,7 +344,9 @@ const UserProfileScreen = ({ route, navigation }) => {
               <Text style={styles.lockedTitle}>This profile is private</Text>
             </View>
             <Text style={styles.lockedText}>
-              Follow this member to request access or wait for them to make their profile public again.
+              {requestPending
+                ? 'Your follow request is pending approval. You will be notified once the member accepts.'
+                : 'Follow this member to request access or wait for them to make their profile public again.'}
             </Text>
           </View>
         ) : (
@@ -474,6 +554,10 @@ const styles = StyleSheet.create({
   secondaryButtonActive: {
     borderColor: colors.success,
     backgroundColor: colors.success + '15',
+  },
+  secondaryButtonPending: {
+    borderColor: colors.warning,
+    backgroundColor: colors.warning + '15',
   },
   secondaryButtonText: {
     color: colors.primary,

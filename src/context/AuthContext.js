@@ -33,11 +33,13 @@ const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) =>
     phone: profileDoc.phone || fallbackUser?.phone || '',
     website: profileDoc.website || fallbackUser?.website || '',
     location: profileDoc.location || fallbackUser?.location || '',
+    followers: typeof profileDoc.followers === 'number' ? profileDoc.followers : (fallbackUser?.followers ?? 0),
+    following: typeof profileDoc.following === 'number' ? profileDoc.following : (fallbackUser?.following ?? 0),
     privacySettings: mergePrivacySettings(profileDoc.privacySettings || fallbackUser?.privacySettings),
   };
 };
 
-const USER_FIELDS = ['uid', 'email', 'role', 'fullName', 'username', 'status', 'profileImageURL', 'address', 'bio', 'phone', 'website', 'location'];
+const USER_FIELDS = ['uid', 'email', 'role', 'fullName', 'username', 'status', 'profileImageURL', 'address', 'bio', 'phone', 'website', 'location', 'followers', 'following'];
 
 const isSameUserShape = (prev, next) => {
   if (prev === next) return true;

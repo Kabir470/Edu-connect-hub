@@ -27,6 +27,7 @@ import CreateJobScreen from './src/screens/CreateJobScreen';
 import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
 import ManageUsersScreen from './src/screens/ManageUsersScreen';
 import PendingVerificationScreen from './src/screens/PendingVerificationScreen';
+import WelcomeScreen from './src/screens/welcome';
 
 
 const Tab = createBottomTabNavigator();
@@ -117,21 +118,14 @@ function ExpertsStack() {
 // Auth Stack Navigator
 function AuthNavigator() {
   return (
-    <Stack.Navigator>
-      <Stack.Screen 
-        name="LoginScreen" 
-        component={LoginScreen}
-        options={{ title: 'Log In' }}
-      />
-      <Stack.Screen 
-        name="SignupScreen" 
-        component={SignupScreen}
-        options={{ title: 'Sign Up' }}
-      />
-
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="WelcomeScreen" component={WelcomeScreen} />
+      <Stack.Screen name="LoginScreen" component={LoginScreen} />
+      <Stack.Screen name="SignupScreen" component={SignupScreen} />
     </Stack.Navigator>
   );
 }
+
 
 // Admin Stack Navigator
 function AdminStack() {
@@ -219,6 +213,7 @@ function SplashScreen() {
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
       <ActivityIndicator size="large" color={colors.primary} />
+      {/* <Text> Welcome To This Page </Text> */}
     </View>
   );
 }

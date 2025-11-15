@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
 import AppTextInput from '../components/AppTextInput';
 import AppButton from '../components/AppButton';
+import { checkUsernameAvailable, validateUsername } from '../utils/usernameService';
 
 const ROLES = [
   { key: 'user', label: 'User', icon: 'person-outline' },
@@ -22,6 +23,7 @@ const SignUpScreen = ({navigation}) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState('user');
+  const [username, setUsername] = useState('');
   const [address, setAddress] = useState('');
   const [nidNumber, setNidNumber] = useState('');
   const [profileImageUri, setProfileImageUri] = useState(null);
@@ -46,6 +48,16 @@ const SignUpScreen = ({navigation}) => {
 
     if (password !== confirmPassword) return setError('Passwords do not match.');
 
+    const usernameCheck = validateUsername(username);
+    if (!usernameCheck.ok) {
+      return setError(usernameCheck.message);
+    }
+
+    const usernameAvailable = await checkUsernameAvailable(usernameCheck.normalized);
+    if (!usernameAvailable) {
+      return setError('That username is already taken.');
+    }
+
     try {
       setLoading(true);
       const checkSignup = await signUp({
@@ -57,6 +69,7 @@ const SignUpScreen = ({navigation}) => {
         nidNumber: nidNumber.trim(),
         profileImageUri,
         nidImageUri,
+        username: usernameCheck.normalized,
       });
       console.log('checkSignup',checkSignup);
       
@@ -126,6 +139,18 @@ const SignUpScreen = ({navigation}) => {
               placeholder="John Doe"
               leftIcon={<Ionicons name="person-outline" size={20} color={colors.textLight} />}
             />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Username</Text>
+            <AppTextInput
+              value={username}
+              onChangeText={setUsername}
+              placeholder="academic_handle"
+              autoCapitalize="none"
+              leftIcon={<Ionicons name="at-outline" size={20} color={colors.textLight} />}
+            />
+            <Text style={styles.helperText}>3-20 characters, letters/numbers/underscores only.</Text>
           </View>
 
           <View style={styles.field}>
@@ -286,6 +311,7 @@ const styles = StyleSheet.create({
   roleLabelActive: { color: colors.white },
   field: { marginBottom: 14 },
   label: { fontSize: 13, color: colors.textLight, marginBottom: 8 },
+  helperText: { marginTop: 6, fontSize: 12, color: colors.textLight },
   errorBox: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.danger,
     padding: 10, borderRadius: 10, gap: 8, marginTop: 6, marginBottom: 4

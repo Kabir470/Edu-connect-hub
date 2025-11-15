@@ -1,0 +1,51 @@
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../firebase';
+
+const buildActorName = (actor) => {
+  if (!actor) return 'Someone';
+  if (actor.fullName?.trim()) return actor.fullName.trim();
+  if (actor.email) return actor.email.split('@')[0];
+  return 'Someone';
+};
+
+const buildPostSnapshot = (post) => {
+  if (!post) return null;
+  return {
+    id: post.id || null,
+    content: post.content || '',
+    userId: post.userId || null,
+    userName: post.userName || '',
+    image: post.image || null,
+    role: post.role || null,
+  };
+};
+
+export const createNotificationEntry = async ({
+  type,
+  targetUserId,
+  actor,
+  post,
+  meta = {},
+}) => {
+  try {
+    if (!targetUserId || !actor?.uid) return;
+    if (targetUserId === actor.uid) return; // Don't notify yourself
+
+    await addDoc(collection(db, 'notifications'), {
+      type,
+      targetUserId,
+      actorUserId: actor.uid,
+      actorName: buildActorName(actor),
+      actorPhotoURL: actor.profileImageURL || null,
+      postId: post?.id || null,
+      postSnapshot: buildPostSnapshot(post),
+      message: meta.message || null,
+      previewText: meta.previewText || null,
+      typeMeta: meta.typeMeta || null,
+      seen: false,
+      createdAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.warn('Failed to create notification entry', error);
+  }
+};

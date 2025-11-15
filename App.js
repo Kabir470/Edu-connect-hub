@@ -5,7 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from './src/constants/colors';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen from './src/screens/LoginScreen';
@@ -16,8 +16,20 @@ import SignupScreen from './src/screens/SignupScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import JobsScreen from './src/screens/JobsScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
+import NotificationsScreen from './src/screens/NotificationsScreen';
 import ExpertsScreen from './src/screens/ExpertsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import UserProfileScreen from './src/screens/UserProfileScreen';
+import EditProfileScreen from './src/screens/EditProfileScreen';
+import ResumeScreen from './src/screens/ResumeScreen';
+import EducationExperienceScreen from './src/screens/EducationExperienceScreen';
+import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
+import SavedPostsScreen from './src/screens/SavedPostsScreen';
+import JobApplicationsScreen from './src/screens/JobApplicationsScreen';
+import ScheduledConsultationsScreen from './src/screens/ScheduledConsultationsScreen';
+import HelpCenterScreen from './src/screens/HelpCenterScreen';
+import TermsScreen from './src/screens/TermsScreen';
+import AboutScreen from './src/screens/AboutScreen';
 import PostDetailScreen from './src/screens/PostDetailScreen';
 import JobDetailScreen from './src/screens/JobDetailScreen';
 import ExpertDetailScreen from './src/screens/ExpertDetailScreen';
@@ -50,6 +62,11 @@ function HomeStack() {
         name="CreatePost" 
         component={CreatePostScreen}
         options={{ title: 'Create Post' }}
+      />
+      <Stack.Screen
+        name="UserProfile"
+        component={UserProfileScreen}
+        options={{ title: 'Member Profile' }}
       />
     </Stack.Navigator>
   );
@@ -110,6 +127,28 @@ function ExpertsStack() {
         component={ExpertDetailScreen}
         options={{ title: 'Expert Profile' }}
       />
+    </Stack.Navigator>
+  );
+}
+
+function ProfileStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="ProfileHome"
+        component={ProfileScreen}
+        options={{ title: 'Profile', headerShown: false }}
+      />
+      <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Edit Profile' }} />
+      <Stack.Screen name="Resume" component={ResumeScreen} options={{ title: 'My CV / Resume' }} />
+      <Stack.Screen name="EducationExperience" component={EducationExperienceScreen} options={{ title: 'Education & Experience' }} />
+      <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} options={{ title: 'Privacy & Security' }} />
+      <Stack.Screen name="SavedPosts" component={SavedPostsScreen} options={{ title: 'Saved Posts' }} />
+      <Stack.Screen name="JobApplications" component={JobApplicationsScreen} options={{ title: 'My Job Applications' }} />
+      <Stack.Screen name="ScheduledConsultations" component={ScheduledConsultationsScreen} options={{ title: 'Scheduled Consultations' }} />
+      <Stack.Screen name="HelpCenter" component={HelpCenterScreen} options={{ title: 'Help Center' }} />
+      <Stack.Screen name="Terms" component={TermsScreen} options={{ title: 'Terms & Conditions' }} />
+      <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About' }} />
     </Stack.Navigator>
   );
 }
@@ -181,6 +220,8 @@ function TabNavigator() {
             iconName = focused ? 'briefcase' : 'briefcase-outline';
           } else if (route.name === 'Messages') {
             iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+          } else if (route.name === 'Notifications') {
+            iconName = focused ? 'notifications' : 'notifications-outline';
           } else if (route.name === 'Experts') {
             iconName = focused ? 'school' : 'school-outline';
           } else if (route.name === 'Profile') {
@@ -203,12 +244,13 @@ function TabNavigator() {
     >
       <Tab.Screen name="Home" component={HomeStack} />
       <Tab.Screen name="Jobs" component={JobsStack} />
-      <Tab.Screen name="Messages" component={MessagesStack} />
+  <Tab.Screen name="Messages" component={MessagesStack} />
+  <Tab.Screen name="Notifications" component={NotificationsScreen} />
       <Tab.Screen name="Experts" component={ExpertsStack} />
       {user?.role === 'admin' && (
         <Tab.Screen name="Admin" component={AdminStack} />
       )}
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
 }
@@ -246,9 +288,11 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <AuthProvider>
-        <NavigationContainer>
-          <RootNavigator />
-        </NavigationContainer>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+          <NavigationContainer>
+            <RootNavigator />
+          </NavigationContainer>
+        </SafeAreaView>
       </AuthProvider>
     </SafeAreaProvider>
   );

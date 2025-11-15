@@ -18,12 +18,17 @@ import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
 
+const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
+
 const CreatePostScreen = ({ navigation }) => {
   const [content, setContent] = useState('');
   const [image, setImage] = useState(null); // local uri
   const [imageType, setImageType] = useState(null); // mime type
   const [submitting, setSubmitting] = useState(false);
   const { user } = useAuth();
+  const displayName = user?.fullName?.trim() || user?.email?.split('@')[0] || 'Guest';
+  const roleLabel = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Public';
+  const avatarSource = user?.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR;
 
   const handlePost = async () => {
     if (!content.trim()) {
@@ -47,7 +52,7 @@ const CreatePostScreen = ({ navigation }) => {
         mediaUrl = await getDownloadURL(storageRef);
       }
 
-      const userName = user.email?.split('@')[0] || 'User';
+  const userName = user?.fullName?.trim() || user.email?.split('@')[0] || 'User';
       await addDoc(collection(db, 'posts'), {
         content: content.trim(),
         image: mediaUrl,
@@ -56,6 +61,11 @@ const CreatePostScreen = ({ navigation }) => {
         userName,
         role: user.role || null,
         userPhotoURL: user.profileImageURL || null,
+  type: 'post',
+        likesCount: 0,
+        commentsCount: 0,
+        sharesCount: 0,
+        likedBy: [],
         createdAt: serverTimestamp(),
       });
       setContent('');
@@ -97,14 +107,14 @@ const CreatePostScreen = ({ navigation }) => {
         {/* User Info */}
         <View style={styles.userInfo}>
           <Image 
-            source={require('../../assets/shahriar-kabir.jpg')} 
+            source={avatarSource}
             style={styles.avatar} 
           />
           <View style={styles.userDetails}>
-            <Text style={styles.userName}>Shahriar Kabir</Text>
+            <Text style={styles.userName}>{displayName}</Text>
             <TouchableOpacity style={styles.visibilityButton}>
               <Ionicons name="globe-outline" size={16} color={colors.textLight} />
-              <Text style={styles.visibilityText}>Public</Text>
+              <Text style={styles.visibilityText}>{roleLabel}</Text>
               <Ionicons name="chevron-down" size={16} color={colors.textLight} />
             </TouchableOpacity>
           </View>

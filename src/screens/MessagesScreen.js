@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,109 +7,235 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { useAuth } from '../context/AuthContext';
+import { subscribeToConversations, subscribeToUserProfile } from '../utils/chatService';
+import { mergePrivacySettings } from '../constants/privacyDefaults';
+
+const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
+
+const formatRelativeTime = (ts) => {
+  if (!ts) return 'Just now';
+  let date = null;
+  if (ts?.seconds) {
+    date = new Date(ts.seconds * 1000);
+  } else if (ts instanceof Date) {
+    date = ts;
+  } else if (typeof ts === 'string' || typeof ts === 'number') {
+    const parsed = new Date(ts);
+    if (!Number.isNaN(parsed.getTime())) date = parsed;
+  }
+  if (!date) return 'Just now';
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
+};
+
+const getAvatarSource = (avatar) => {
+  if (!avatar) return DEFAULT_AVATAR;
+  if (typeof avatar === 'number') return avatar;
+  return { uri: avatar };
+};
 
 const MessagesScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [conversations, setConversations] = useState([]);
+  const [loadingConversations, setLoadingConversations] = useState(true);
+  const [participantProfiles, setParticipantProfiles] = useState({});
 
-  const conversations = [
-    {
-      id: '1',
-      name: 'Dr. Aliur Rahman',
-      avatar: require('../../assets/aliur-rahman.jpg'),
-      lastMessage: 'Thanks for the research paper!',
-      time: '10:30 AM',
-      unread: 2,
-      online: true,
-    },
-    {
-      id: '2',
-      name: 'Shahriar Kabir',
-      avatar: require('../../assets/shahriar-kabir.jpg'),
-      lastMessage: 'When is our next meeting?',
-      time: 'Yesterday',
-      unread: 0,
-      online: false,
-    },
-    {
-      id: '3',
-      name: 'Prof. Koushik Hasan',
-      avatar: require('../../assets/koushik-hasan.jpg'),
-      lastMessage: 'I reviewed your thesis draft',
-      time: '2 days ago',
-      unread: 1,
-      online: true,
-    },
-    {
-      id: '4',
-      name: 'Farhad Mahmud',
-      avatar: require('../../assets/farhad-mahmud.jpg'),
-      lastMessage: 'See you at the conference!',
-      time: '3 days ago',
-      unread: 0,
-      online: false,
-    },
-    {
-      id: '5',
-      name: 'Research Team',
-      avatar: require('../../assets/refat.jpg'),
-      lastMessage: 'Refat: Meeting at 3 PM tomorrow',
-      time: '4 days ago',
-      unread: 5,
-      online: false,
-      isGroup: true,
-    },
-    {
-      id: '6',
-      name: 'Dr. Tanvir Ahmed',
-      avatar: require('../../assets/tanvir-ahmed.jpg'),
-      lastMessage: 'Your presentation was excellent!',
-      time: '1 week ago',
-      unread: 0,
-      online: true,
-    },
-  ];
+  useEffect(() => {
+    if (!user?.uid) {
+      setConversations([]);
+      setLoadingConversations(false);
+      return;
+    }
+    setLoadingConversations(true);
+    const unsubscribe = subscribeToConversations(
+      user.uid,
+      (snapshot) => {
+        const next = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        setConversations(next);
+        setLoadingConversations(false);
+      },
+      (error) => {
+        console.warn('Conversation stream error', error);
+        setLoadingConversations(false);
+      }
+    );
+    return unsubscribe;
+  }, [user?.uid]);
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    if (!user?.uid) {
+      setParticipantProfiles({});
+      return undefined;
+    }
+    const otherIds = new Set();
+    conversations.forEach((conv) => {
+      conv.participants?.forEach((participantId) => {
+        if (participantId && participantId !== user.uid) {
+          otherIds.add(participantId);
+        }
+      });
+    });
+
+    if (!otherIds.size) {
+      setParticipantProfiles((prev) => (Object.keys(prev).length ? {} : prev));
+      return undefined;
+    }
+
+    const unsubscribes = Array.from(otherIds).map((participantId) =>
+      subscribeToUserProfile(
+        participantId,
+        (profile) => {
+          if (!profile) return;
+          setParticipantProfiles((prev) => {
+            const prevProfile = prev[participantId];
+            if (
+              prevProfile &&
+              prevProfile.fullName === profile.fullName &&
+              prevProfile.profileImageURL === profile.profileImageURL &&
+              prevProfile.role === profile.role
+            ) {
+              return prev;
+            }
+            return { ...prev, [participantId]: profile };
+          });
+        },
+        (error) => console.warn('Participant profile stream error', error)
+      )
+    );
+    return () => unsubscribes.forEach((unsub) => unsub && unsub());
+  }, [conversations, user?.uid]);
+
+  const decoratedConversations = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return conversations
+      .map((conv) => {
+        const otherId = conv.participants?.find((p) => p !== user?.uid) || conv.participants?.[0];
+        const override = otherId ? participantProfiles[otherId] : null;
+        const baseProfile = conv.participantDetails?.[otherId] || {};
+        const finalName =
+          override?.fullName?.trim() ||
+          baseProfile.name ||
+          override?.email ||
+          baseProfile.email ||
+          'AcademicConnect user';
+        const privacySettings = mergePrivacySettings(
+          override?.privacySettings || baseProfile.privacySettings || {}
+        );
+        const activityHidden =
+          override?.activityStatusHidden ?? baseProfile.activityStatusHidden ?? false;
+        const lastActiveAt = override?.lastActiveAt || baseProfile.lastActiveAt || null;
+        const rawPresence = override?.presenceStatus || baseProfile.presenceStatus || 'offline';
+        const activityVisible = privacySettings.showActivityStatus !== false && !activityHidden;
+        const derivedPresence = activityVisible ? rawPresence : 'offline';
+        const activityLabel = activityVisible
+          ? derivedPresence === 'online'
+            ? 'Active now'
+            : lastActiveAt
+            ? `Active ${formatRelativeTime(lastActiveAt)}`
+            : 'Recently active'
+          : null;
+        const otherProfile = {
+          ...baseProfile,
+          name: finalName,
+          avatar: override?.profileImageURL || baseProfile.avatar || null,
+          role: override?.role || baseProfile.role || 'Member',
+          privacySettings,
+          presenceStatus: derivedPresence,
+          lastActiveAt,
+          activityVisible,
+          activityLabel,
+        };
+        const timestamp = conv.lastMessageAt?.seconds
+          ? conv.lastMessageAt.seconds * 1000
+          : conv.lastMessageAt instanceof Date
+          ? conv.lastMessageAt.getTime()
+          : 0;
+        return {
+          ...conv,
+          otherId,
+          otherProfile,
+          sortTime: timestamp,
+        };
+      })
+      .filter((conv) =>
+        !normalizedQuery || conv.otherProfile.name?.toLowerCase().includes(normalizedQuery)
+      )
+      .sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
+  }, [conversations, participantProfiles, searchQuery, user?.uid]);
 
   const renderConversation = ({ item }) => (
     <TouchableOpacity
       style={styles.conversationCard}
-      onPress={() => navigation.navigate('Chat', { 
-        id: item.id, 
-        name: item.name,
-        avatar: item.avatar 
-      })}
+      onPress={() =>
+        navigation.navigate('Chat', {
+          conversationId: item.id,
+          userId: item.otherId,
+          name: item.otherProfile.name,
+          avatar: item.otherProfile.avatar,
+          privacySettings: item.otherProfile.privacySettings,
+        })
+      }
       activeOpacity={0.7}
     >
       <View style={styles.avatarContainer}>
-        <Image source={item.avatar} style={styles.avatar} />
-        {item.online && <View style={styles.onlineIndicator} />}
+        <Image source={getAvatarSource(item.otherProfile.avatar)} style={styles.avatar} />
+        {item.otherProfile.activityVisible && (
+          <View
+            style={[
+              styles.onlineIndicator,
+              item.otherProfile.presenceStatus === 'online'
+                ? styles.onlineIndicatorActive
+                : styles.onlineIndicatorIdle,
+            ]}
+          />
+        )}
       </View>
 
       <View style={styles.conversationInfo}>
         <View style={styles.conversationHeader}>
-          <Text style={styles.name}>{item.name}</Text>
-          <Text style={styles.time}>{item.time}</Text>
+          <Text style={styles.name}>{item.otherProfile.name || 'AcademicConnect user'}</Text>
+          <Text style={styles.time}>{formatRelativeTime(item.lastMessageAt)}</Text>
         </View>
+        {item.otherProfile.activityLabel && (
+          <Text
+            style={[
+              styles.activityStatus,
+              item.otherProfile.presenceStatus === 'online'
+                ? styles.activityStatusActive
+                : styles.activityStatusIdle,
+            ]}
+          >
+            {item.otherProfile.activityLabel}
+          </Text>
+        )}
         <View style={styles.conversationFooter}>
           <Text 
             style={[
               styles.lastMessage,
-              item.unread > 0 && styles.lastMessageUnread
+              (item.unreadCounts?.[user?.uid] || 0) > 0 && styles.lastMessageUnread
             ]}
             numberOfLines={1}
           >
-            {item.lastMessage}
+            {item.lastMessage || 'Tap to start chatting'}
           </Text>
-          {item.unread > 0 && (
+          {(item.unreadCounts?.[user?.uid] || 0) > 0 && (
             <View style={styles.unreadBadge}>
-              <Text style={styles.unreadText}>{item.unread}</Text>
+              <Text style={styles.unreadText}>{item.unreadCounts?.[user?.uid] || 0}</Text>
             </View>
           )}
         </View>
@@ -133,21 +259,30 @@ const MessagesScreen = ({ navigation }) => {
 
       {/* Quick Actions */}
       <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.quickActionButton}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => Alert.alert('Groups', 'Group messaging will be available soon.')}
+        >
           <View style={styles.quickActionIcon}>
             <Ionicons name="people-outline" size={24} color={colors.primary} />
           </View>
           <Text style={styles.quickActionText}>Groups</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.quickActionButton}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => Alert.alert('Start a chat', 'Open a profile and tap Message to begin a conversation.')}
+        >
           <View style={styles.quickActionIcon}>
             <Ionicons name="person-add-outline" size={24} color={colors.primary} />
           </View>
           <Text style={styles.quickActionText}>New Chat</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.quickActionButton}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => Alert.alert('Video Call', 'Open a conversation to start a call.')}
+        >
           <View style={styles.quickActionIcon}>
             <Ionicons name="videocam-outline" size={24} color={colors.primary} />
           </View>
@@ -159,20 +294,40 @@ const MessagesScreen = ({ navigation }) => {
       <View style={styles.conversationsHeader}>
         <Text style={styles.conversationsTitle}>Messages</Text>
         <Text style={styles.conversationsCount}>
-          {filteredConversations.filter(c => c.unread > 0).length} unread
+          {decoratedConversations.reduce(
+            (acc, conv) => acc + ((conv.unreadCounts?.[user?.uid] || 0) > 0 ? 1 : 0),
+            0
+          )}{' '}
+          unread
         </Text>
       </View>
 
       <FlatList
-        data={filteredConversations}
+        data={decoratedConversations}
         renderItem={renderConversation}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          loadingConversations ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.emptyStateText}>Loading your conversations…</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="chatbubbles-outline" size={32} color={colors.textLight} />
+              <Text style={styles.emptyStateText}>No conversations yet. Start one from a profile.</Text>
+            </View>
+          )
+        }
       />
 
       {/* Floating Action Button */}
-      <TouchableOpacity style={styles.fab}>
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => Alert.alert('Start a chat', 'Visit a user profile and tap Message to begin chatting.')}
+      >
         <Ionicons name="create-outline" size={28} color={colors.white} />
       </TouchableOpacity>
     </SafeAreaView>
@@ -285,9 +440,15 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: colors.success,
+    backgroundColor: colors.border,
     borderWidth: 2,
     borderColor: colors.white,
+  },
+  onlineIndicatorActive: {
+    backgroundColor: colors.success,
+  },
+  onlineIndicatorIdle: {
+    backgroundColor: colors.border,
   },
   conversationInfo: {
     flex: 1,
@@ -313,6 +474,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  activityStatus: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  activityStatusActive: {
+    color: colors.success,
+  },
+  activityStatusIdle: {
+    color: colors.textLight,
+  },
   lastMessage: {
     flex: 1,
     fontSize: 14,
@@ -336,6 +507,16 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '600',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyStateText: {
+    marginTop: 12,
+    color: colors.textLight,
+    textAlign: 'center',
   },
   fab: {
     position: 'absolute',

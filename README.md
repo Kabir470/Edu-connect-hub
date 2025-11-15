@@ -26,6 +26,7 @@ A comprehensive React Native mobile application designed for students, teachers,
 - Real-time chat with individuals and groups
 - Online/offline status indicators
 - Unread message badges
+- Share photos, videos, and documents with inline previews
 - Voice and video call integration (UI ready)
 - Quick actions for new chats and group creation
 

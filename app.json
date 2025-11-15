@@ -21,7 +21,6 @@
     },
     "android": {
       "package": "com.academicconnect.app",
-      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#6C63FF"

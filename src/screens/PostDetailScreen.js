@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,97 +9,159 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Share,
   Alert,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { db } from '../../firebase';
-import { doc, updateDoc, increment } from 'firebase/firestore';
+import {
+  doc,
+  onSnapshot,
+  collection,
+  query,
+  orderBy,
+  addDoc,
+  updateDoc,
+  increment,
+  serverTimestamp,
+  arrayUnion,
+  arrayRemove,
+} from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext';
+import { createNotificationEntry } from '../utils/notificationService';
 
-const PostDetailScreen = ({ route, navigation }) => {
+const PostDetailScreen = ({ route }) => {
   const { post } = route.params;
-  const [comment, setComment] = useState('');
-  const [liked, setLiked] = useState(false);
-  const [shares, setShares] = useState(post.shares || 0);
-  const [comments, setComments] = useState([
-    {
-      id: '1',
-      author: 'Shopnil Karmakar',
-      avatar: require('../../assets/shopnil-karmakar.jpg'),
-      content: 'Great insights! Thanks for sharing.',
-      time: '1h ago',
-      likes: 5,
-    },
-    {
-      id: '2',
-      author: 'Mahim',
-      avatar: require('../../assets/mahim.jpg'),
-      content: 'I have been working on something similar. Would love to discuss!',
-      time: '3h ago',
-      likes: 3,
-    },
-  ]);
+  const { user } = useAuth();
+  const [commentInput, setCommentInput] = useState('');
+  const [postData, setPostData] = useState(post);
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(true);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
-  const handleAddComment = () => {
-    if (comment.trim()) {
-      const newComment = {
-        id: String(comments.length + 1),
-        author: 'You',
-        avatar: require('../../assets/shahriar-kabir.jpg'),
-        content: comment,
-        time: 'Just now',
-        likes: 0,
-      };
-      setComments([...comments, newComment]);
-      setComment('');
+  const postRef = useMemo(() => doc(db, 'posts', post.id), [post.id]);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(postRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setPostData({ id: snapshot.id, ...snapshot.data() });
+      }
+    });
+    return unsubscribe;
+  }, [postRef]);
+
+  useEffect(() => {
+    const commentsRef = collection(postRef, 'comments');
+    const q = query(commentsRef, orderBy('createdAt', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setComments(items);
+      setLoadingComments(false);
+    });
+    return unsubscribe;
+  }, [postRef]);
+
+  const formatRelativeTime = (ts) => {
+    if (!ts) return '';
+    const date = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
+    const diffMs = Date.now() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  const likesCount = postData?.likesCount ?? 0;
+  const sharesCount = postData?.sharesCount ?? 0;
+  const commentsCount = postData?.commentsCount ?? comments.length;
+  const userHasLiked = !!(user?.uid && Array.isArray(postData?.likedBy) && postData.likedBy.includes(user.uid));
+
+  const handleToggleLike = async () => {
+    if (!user) {
+      Alert.alert('Sign in required', 'Log in to like posts.');
+      return;
+    }
+    try {
+      await updateDoc(postRef, {
+        likedBy: userHasLiked ? arrayRemove(user.uid) : arrayUnion(user.uid),
+        likesCount: increment(userHasLiked ? -1 : 1),
+      });
+      if (!userHasLiked) {
+        await createNotificationEntry({
+          type: 'like',
+          targetUserId: postData?.userId,
+          actor: user,
+          post: postData,
+          meta: { message: 'liked your post' },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to like post', error);
+      Alert.alert('Error', 'Unable to update like right now.');
     }
   };
 
-  const handleShare = async () => {
+  const handleSharePost = async () => {
     try {
-      let shareOptions = {
-        message: post.content,
-      };
-
-      // If there's an image, share its URL as well.
-      // On iOS, the URL can be passed directly. On Android, it's better to include it in the message.
-      if (post.image) {
-        if (Platform.OS === 'ios') {
-          shareOptions.url = post.image;
-        } else {
-          shareOptions.message = `${post.content}\n\nImage: ${post.image}`;
-        }
-      }
-
-      const result = await Share.share(shareOptions);
-
+      const message = `${postData?.userName || 'Someone'} on AcademicConnect:\n\n${postData?.content || ''}`;
+      const result = await Share.share({ message });
       if (result.action === Share.sharedAction) {
-        setShares((prev) => prev + 1);
-        if (post.id) {
-          try {
-            const ref = doc(db, 'posts', post.id);
-            await updateDoc(ref, { shares: increment(1) });
-          } catch (err) {
-            console.log('Failed to update share count in Firestore:', err);
-          }
-        }
-        if (result.activityType) {
-          // Shared with activity type of result.activityType
-          console.log('Post shared with activity type:', result.activityType);
-        } else {
-          // Shared
-          console.log('Post shared successfully');
-        }
-      } else if (result.action === Share.dismissedAction) {
-        // Dismissed
-        console.log('Share action was dismissed');
+        await updateDoc(postRef, { sharesCount: increment(1) });
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to share the post. Please try again.');
-      console.error('Error sharing post:', error.message);
+      console.error('Failed to share post', error);
+      Alert.alert('Error', 'Unable to share the post right now.');
     }
+  };
+
+  const handleAddComment = async () => {
+  const trimmedComment = commentInput.trim();
+  if (!trimmedComment) return;
+    if (!user) {
+      Alert.alert('Sign in required', 'Log in to comment on posts.');
+      return;
+    }
+    try {
+      setSubmittingComment(true);
+      const authorName = user.fullName || user.email || 'You';
+      await addDoc(collection(postRef, 'comments'), {
+        content: trimmedComment,
+        userId: user.uid,
+        userName: authorName,
+        userPhotoURL: user.profileImageURL || null,
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(postRef, { commentsCount: increment(1) });
+      await createNotificationEntry({
+        type: 'comment',
+        targetUserId: postData?.userId,
+        actor: user,
+        post: postData,
+        meta: {
+          message: 'commented on your post',
+          previewText: trimmedComment,
+        },
+      });
+      setCommentInput('');
+    } catch (error) {
+      console.error('Failed to add comment', error);
+      Alert.alert('Error', 'Unable to add your comment right now.');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const renderPostTime = () => {
+    if (postData?.createdAt) return formatRelativeTime(postData.createdAt);
+    if (postData?.time) return postData.time;
+    return '';
   };
 
   return (
@@ -111,11 +173,14 @@ const PostDetailScreen = ({ route, navigation }) => {
         <ScrollView showsVerticalScrollIndicator={false}>
           {/* Post Header */}
           <View style={styles.postHeader}>
-            <Image source={post.avatar} style={styles.avatar} />
+            <Image 
+              source={postData?.userPhotoURL ? { uri: postData.userPhotoURL } : require('../../assets/shahriar-kabir.jpg')} 
+              style={styles.avatar} 
+            />
             <View style={styles.authorInfo}>
-              <Text style={styles.authorName}>{post.author}</Text>
-              <Text style={styles.authorRole}>{post.role}</Text>
-              <Text style={styles.postTime}>{post.time}</Text>
+              <Text style={styles.authorName}>{postData?.userName || postData?.userEmail || 'User'}</Text>
+              <Text style={styles.authorRole}>{postData?.role || ''}</Text>
+              <Text style={styles.postTime}>{renderPostTime()}</Text>
             </View>
             <TouchableOpacity>
               <Ionicons name="ellipsis-horizontal" size={24} color={colors.mediumGray} />
@@ -124,18 +189,18 @@ const PostDetailScreen = ({ route, navigation }) => {
 
           {/* Post Content */}
           <View style={styles.contentSection}>
-            <Text style={styles.postContent}>{post.content}</Text>
-            {post.image && (
-              <Image source={{ uri: post.image }} style={styles.postImage} />
+            <Text style={styles.postContent}>{postData?.content}</Text>
+            {postData?.image && (
+              <Image source={{ uri: postData.image }} style={styles.postImage} />
             )}
           </View>
 
           {/* Post Stats */}
           <View style={styles.postStats}>
-            <Text style={styles.statsText}>{liked ? post.likes + 1 : post.likes} likes</Text>
+            <Text style={styles.statsText}>{likesCount} likes</Text>
             <View style={styles.statsRight}>
-              <Text style={styles.statsText}>{comments.length} comments</Text>
-              <Text style={styles.statsText}> • {shares} shares</Text>
+              <Text style={styles.statsText}>{commentsCount} comments</Text>
+              <Text style={styles.statsText}> • {sharesCount} shares</Text>
             </View>
           </View>
 
@@ -143,14 +208,14 @@ const PostDetailScreen = ({ route, navigation }) => {
           <View style={styles.postActions}>
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => setLiked(!liked)}
+              onPress={handleToggleLike}
             >
               <Ionicons 
-                name={liked ? "heart" : "heart-outline"} 
+                name={userHasLiked ? 'thumbs-up' : 'thumbs-up-outline'} 
                 size={24} 
-                color={liked ? colors.danger : colors.mediumGray} 
+                color={userHasLiked ? colors.primary : colors.mediumGray} 
               />
-              <Text style={[styles.actionText, liked && styles.actionTextActive]}>Like</Text>
+              <Text style={[styles.actionText, userHasLiked && styles.actionTextActive]}>Like</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.actionButton}>
@@ -158,7 +223,7 @@ const PostDetailScreen = ({ route, navigation }) => {
               <Text style={styles.actionText}>Comment</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleSharePost}>
               <Ionicons name="share-social-outline" size={24} color={colors.mediumGray} />
               <Text style={styles.actionText}>Share</Text>
             </TouchableOpacity>
@@ -166,53 +231,53 @@ const PostDetailScreen = ({ route, navigation }) => {
 
           {/* Comments Section */}
           <View style={styles.commentsSection}>
-            <Text style={styles.commentsTitle}>Comments ({comments.length})</Text>
-            {comments.map((item) => (
-              <View key={item.id} style={styles.commentCard}>
-                <Image source={item.avatar} style={styles.commentAvatar} />
-                <View style={styles.commentContent}>
-                  <View style={styles.commentHeader}>
-                    <Text style={styles.commentAuthor}>{item.author}</Text>
-                    <Text style={styles.commentTime}>{item.time}</Text>
-                  </View>
-                  <Text style={styles.commentText}>{item.content}</Text>
-                  <View style={styles.commentActions}>
-                    <TouchableOpacity style={styles.commentActionButton}>
-                      <Ionicons name="heart-outline" size={16} color={colors.mediumGray} />
-                      <Text style={styles.commentActionText}>{item.likes}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.commentActionButton}>
-                      <Text style={styles.commentActionText}>Reply</Text>
-                    </TouchableOpacity>
+            <Text style={styles.commentsTitle}>Comments ({commentsCount})</Text>
+            {loadingComments ? (
+              <Text style={{ color: colors.textLight }}>Loading comments...</Text>
+            ) : comments.length === 0 ? (
+              <Text style={{ color: colors.textLight }}>No comments yet. Be the first!</Text>
+            ) : (
+              comments.map((item) => (
+                <View key={item.id} style={styles.commentCard}>
+                  <Image 
+                    source={item.userPhotoURL ? { uri: item.userPhotoURL } : require('../../assets/shahriar-kabir.jpg')} 
+                    style={styles.commentAvatar} 
+                  />
+                  <View style={styles.commentContent}>
+                    <View style={styles.commentHeader}>
+                      <Text style={styles.commentAuthor}>{item.userName || 'Anonymous'}</Text>
+                      <Text style={styles.commentTime}>{formatRelativeTime(item.createdAt)}</Text>
+                    </View>
+                    <Text style={styles.commentText}>{item.content}</Text>
                   </View>
                 </View>
-              </View>
-            ))}
+              ))
+            )}
           </View>
         </ScrollView>
 
         {/* Add Comment Input */}
         <View style={styles.commentInputContainer}>
           <Image 
-            source={require('../../assets/shahriar-kabir.jpg')} 
+            source={user?.profileImageURL ? { uri: user.profileImageURL } : require('../../assets/shahriar-kabir.jpg')} 
             style={styles.commentAvatar} 
           />
           <TextInput
             style={styles.commentInput}
             placeholder="Add a comment..."
-            value={comment}
-            onChangeText={setComment}
+            value={commentInput}
+            onChangeText={setCommentInput}
             placeholderTextColor={colors.textLight}
           />
           <TouchableOpacity 
             style={styles.sendButton}
             onPress={handleAddComment}
-            disabled={!comment.trim()}
+            disabled={!commentInput.trim() || submittingComment}
           >
             <Ionicons 
               name="send" 
               size={22} 
-              color={comment.trim() ? colors.primary : colors.textLight} 
+              color={commentInput.trim() ? colors.primary : colors.textLight} 
             />
           </TouchableOpacity>
         </View>
@@ -308,7 +373,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   actionTextActive: {
-    color: colors.danger,
+    color: colors.primary,
   },
   commentsSection: {
     backgroundColor: colors.white,

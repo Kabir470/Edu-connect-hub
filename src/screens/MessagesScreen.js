@@ -124,6 +124,25 @@ const MessagesScreen = ({ navigation }) => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     return conversations
       .map((conv) => {
+        if (conv.type === 'group') {
+          const groupProfile = {
+            name: conv.name || 'Group',
+            avatar: conv.avatar || null,
+            role: `${(conv.participants?.length || 0)} members`,
+            privacySettings: {},
+            presenceStatus: 'offline',
+            lastActiveAt: null,
+            activityVisible: false,
+            activityLabel: null,
+          };
+          const timestamp = conv.lastMessageAt?.seconds
+            ? conv.lastMessageAt.seconds * 1000
+            : conv.lastMessageAt instanceof Date
+            ? conv.lastMessageAt.getTime()
+            : 0;
+          return { ...conv, otherId: null, otherProfile: groupProfile, sortTime: timestamp };
+        }
+
         const otherId = conv.participants?.find((p) => p !== user?.uid) || conv.participants?.[0];
         const override = otherId ? participantProfiles[otherId] : null;
         const baseProfile = conv.participantDetails?.[otherId] || {};
@@ -172,9 +191,7 @@ const MessagesScreen = ({ navigation }) => {
           sortTime: timestamp,
         };
       })
-      .filter((conv) =>
-        !normalizedQuery || conv.otherProfile.name?.toLowerCase().includes(normalizedQuery)
-      )
+      .filter((conv) => !normalizedQuery || (conv.otherProfile.name || '').toLowerCase().includes(normalizedQuery))
       .sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
   }, [conversations, participantProfiles, searchQuery, user?.uid]);
 
@@ -182,19 +199,23 @@ const MessagesScreen = ({ navigation }) => {
     <TouchableOpacity
       style={styles.conversationCard}
       onPress={() =>
-        navigation.navigate('Chat', {
-          conversationId: item.id,
-          userId: item.otherId,
-          name: item.otherProfile.name,
-          avatar: item.otherProfile.avatar,
-          privacySettings: item.otherProfile.privacySettings,
-        })
+        navigation.navigate('Chat',
+          item.type === 'group'
+            ? { conversationId: item.id, name: item.otherProfile.name, avatar: item.otherProfile.avatar }
+            : {
+                conversationId: item.id,
+                userId: item.otherId,
+                name: item.otherProfile.name,
+                avatar: item.otherProfile.avatar,
+                privacySettings: item.otherProfile.privacySettings,
+              }
+        )
       }
       activeOpacity={0.7}
     >
       <View style={styles.avatarContainer}>
         <Image source={getAvatarSource(item.otherProfile.avatar)} style={styles.avatar} />
-        {item.otherProfile.activityVisible && (
+        {item.type !== 'group' && item.otherProfile.activityVisible && (
           <View
             style={[
               styles.onlineIndicator,
@@ -211,7 +232,7 @@ const MessagesScreen = ({ navigation }) => {
           <Text style={styles.name}>{item.otherProfile.name || 'AcademicConnect user'}</Text>
           <Text style={styles.time}>{formatRelativeTime(item.lastMessageAt)}</Text>
         </View>
-        {item.otherProfile.activityLabel && (
+        {item.type !== 'group' && item.otherProfile.activityLabel && (
           <Text
             style={[
               styles.activityStatus,
@@ -261,7 +282,7 @@ const MessagesScreen = ({ navigation }) => {
       <View style={styles.quickActions}>
         <TouchableOpacity
           style={styles.quickActionButton}
-          onPress={() => Alert.alert('Groups', 'Group messaging will be available soon.')}
+          onPress={() => navigation.navigate('CreateGroup')}
         >
           <View style={styles.quickActionIcon}>
             <Ionicons name="people-outline" size={24} color={colors.primary} />
@@ -326,7 +347,7 @@ const MessagesScreen = ({ navigation }) => {
       {/* Floating Action Button */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => Alert.alert('Start a chat', 'Visit a user profile and tap Message to begin chatting.')}
+        onPress={() => navigation.navigate('CreateGroup')}
       >
         <Ionicons name="create-outline" size={28} color={colors.white} />
       </TouchableOpacity>

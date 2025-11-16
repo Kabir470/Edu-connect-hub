@@ -105,6 +105,11 @@ function MessagesStack() {
         component={MessagesScreen}
         options={{ title: 'Messages' }}
       />
+      <Stack.Screen
+        name="CreateGroup"
+        component={require('./src/screens/CreateGroupScreen').default}
+        options={{ title: 'New Group' }}
+      />
       <Stack.Screen 
         name="Chat" 
         component={ChatScreen}

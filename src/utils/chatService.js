@@ -185,8 +185,24 @@ export const sendMessage = async ({
 	};
 	if (receiverId) {
 		updates[`unreadCounts.${receiverId}`] = increment(1);
+		await updateDoc(conversationRef, updates);
+		return;
 	}
-	await updateDoc(conversationRef, updates);
+	// Group or broadcast: increment unread for all participants except sender
+	try {
+		const snap = await getDoc(conversationRef);
+		const participants = snap.exists() ? snap.data()?.participants || [] : [];
+		const batchUpdates = { ...updates };
+		participants
+			.filter((uid) => uid && uid !== sender.uid)
+			.forEach((uid) => {
+				batchUpdates[`unreadCounts.${uid}`] = increment(1);
+			});
+		await updateDoc(conversationRef, batchUpdates);
+	} catch (e) {
+		// fallback to minimal update
+		await updateDoc(conversationRef, updates);
+	}
 };
 
 export const markConversationRead = async (conversationId, userId) => {
@@ -255,4 +271,31 @@ export const logCallMessage = async ({
 		lastMessageAt: serverTimestamp(),
 		lastSenderId: callerId || null,
 	});
+};
+
+export const createGroupConversation = async ({ creator, members = [], name, avatar = null }) => {
+	if (!creator?.uid || !Array.isArray(members)) throw new Error('Missing creator or members');
+	const uniqueMembers = Array.from(new Set([creator.uid, ...members.filter(Boolean)]));
+	if (uniqueMembers.length < 3) throw new Error('A group needs at least 3 members');
+	const participantDetails = Object.fromEntries(
+		uniqueMembers.map((uid) => [uid, buildParticipantSnapshot(uid === creator.uid ? creator : { uid })])
+	);
+	const payload = {
+		type: 'group',
+		name: name?.trim() || 'New group',
+		avatar: avatar || null,
+		participants: uniqueMembers,
+		participantDetails,
+		admins: [creator.uid],
+		createdBy: creator.uid,
+		createdAt: serverTimestamp(),
+		lastMessage: `${creator.fullName || 'Someone'} created the group` ,
+		lastMessageType: 'system',
+		lastMessageAt: serverTimestamp(),
+		lastSenderId: creator.uid,
+		unreadCounts: uniqueMembers.reduce((acc, uid) => ({ ...acc, [uid]: 0 }), {}),
+		typing: uniqueMembers.reduce((acc, uid) => ({ ...acc, [uid]: false }), {}),
+	};
+	const ref = await addDoc(conversationsCollection, payload);
+	return { id: ref.id, ...payload };
 };

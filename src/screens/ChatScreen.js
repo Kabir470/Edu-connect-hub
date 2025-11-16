@@ -170,6 +170,8 @@ const ChatScreen = ({ route, navigation }) => {
     return unsubscribe;
   }, [conversationId]);
 
+  const [isGroup, setIsGroup] = useState(false);
+
   useEffect(() => {
     if (!conversationId) return;
     const unsubscribe = subscribeToConversationMeta(
@@ -177,6 +179,16 @@ const ChatScreen = ({ route, navigation }) => {
       (snapshot) => {
         const data = snapshot.data();
         if (!data) return;
+        if (data.type === 'group') {
+          setIsGroup(true);
+          setOtherTyping(false);
+          setTargetProfile((prev) => ({ ...prev, uid: null, name: data.name || 'Group', avatar: data.avatar || null }));
+          if ((data.unreadCounts?.[user?.uid] || 0) > 0) {
+            markConversationRead(conversationId, user.uid).catch((error) => console.warn('Mark read failed', error));
+          }
+          return;
+        }
+        setIsGroup(false);
         const otherId = data.participants?.find((id) => id !== user?.uid);
         if (otherId) {
           setOtherTyping(Boolean(data.typing?.[otherId]));
@@ -418,8 +430,7 @@ const ChatScreen = ({ route, navigation }) => {
     if (
       (!messageText.trim() && !pendingAttachments.length && !audioPreview) ||
       !conversationId ||
-      !user?.uid ||
-      !targetProfile?.uid
+      !user?.uid
     ) {
       return;
     }
@@ -447,7 +458,7 @@ const ChatScreen = ({ route, navigation }) => {
         conversationId,
         text: messageText,
         sender: user,
-        receiverId: targetProfile.uid,
+        receiverId: isGroup ? null : targetProfile.uid,
         attachments: uploaded,
       });
       setMessageText('');

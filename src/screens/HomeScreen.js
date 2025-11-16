@@ -14,9 +14,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { followUser, unfollowUser, FOLLOW_STATUS, subscribeToFollowState } from '../utils/followService';
 import { db } from '../../firebase';
 import { createNotificationEntry } from '../utils/notificationService';
 import {
@@ -31,6 +33,9 @@ import {
   increment,
   addDoc,
   serverTimestamp,
+  deleteDoc,
+  setDoc,
+  getDoc,
 } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 // Removed user search from Home; feature moved to Followers & Requests screen.
@@ -87,6 +92,10 @@ const HomeScreen = ({ navigation }) => {
   const [shareComposerPost, setShareComposerPost] = useState(null);
   const [shareComposerNote, setShareComposerNote] = useState('');
   const [shareSaving, setShareSaving] = useState(false);
+  const [hiddenPostIds, setHiddenPostIds] = useState(new Set());
+  const [optionsPost, setOptionsPost] = useState(null);
+  const [optionsVisible, setOptionsVisible] = useState(false);
+  const [authorFollowState, setAuthorFollowState] = useState(null);
   // User search states removed (migrated to FollowRelationsScreen)
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -116,12 +125,22 @@ const HomeScreen = ({ navigation }) => {
   // Username search handlers removed.
 
   const filteredPosts = useMemo(() => {
+    let base = posts.filter((p) => !hiddenPostIds.has(p.id));
     if (feedFilter === 'mine') {
       if (!user?.uid) return [];
-      return posts.filter((post) => post.userId === user.uid);
+      base = base.filter((post) => post.userId === user.uid);
     }
-    return posts;
-  }, [feedFilter, posts, user?.uid]);
+    return base;
+  }, [feedFilter, posts, user?.uid, hiddenPostIds]);
+
+  useEffect(() => {
+    if (!user?.uid || !optionsPost?.userId || user.uid === optionsPost.userId) {
+      setAuthorFollowState(null);
+      return;
+    }
+    const unsubscribe = subscribeToFollowState(user.uid, optionsPost.userId, setAuthorFollowState);
+    return () => unsubscribe();
+  }, [user?.uid, optionsPost?.userId]);
 
   const recordSharedPost = useCallback(
     async (originalPost, note = '') => {
@@ -240,6 +259,134 @@ const HomeScreen = ({ navigation }) => {
       console.error('Share failed', error);
       Alert.alert('Error', 'Unable to share the post right now.');
     }
+  };
+
+  // Post options handlers
+  const handleOpenOptions = (postItem) => {
+    setOptionsPost(postItem);
+    setOptionsVisible(true);
+  };
+
+  const closeOptions = () => {
+    setOptionsVisible(false);
+    setOptionsPost(null);
+  };
+
+  const handleCopyText = async () => {
+    if (!optionsPost) return;
+    try {
+      await Clipboard.setStringAsync(optionsPost.content || '');
+      Alert.alert('Copied', 'Post text copied to clipboard.');
+    } catch (e) {
+      Alert.alert('Copy failed', 'Unable to copy text right now.');
+    }
+    closeOptions();
+  };
+
+  const handleSavePost = async () => {
+    if (!user?.uid || !optionsPost) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid, 'savedPosts', optionsPost.id), {
+        postId: optionsPost.id,
+        postSnapshot: buildSharedSnapshot(optionsPost),
+        createdAt: serverTimestamp(),
+      });
+      // Track saver on the post document for later cascade delete
+      try {
+        await updateDoc(doc(db, 'posts', optionsPost.id), {
+          savedBy: arrayUnion(user.uid),
+        });
+      } catch (_) {
+        // ignore if post disappeared or update fails
+      }
+      Alert.alert('Saved', 'Post added to Saved Posts.');
+    } catch (e) {
+      Alert.alert('Save failed', 'Unable to save this post.');
+    }
+    closeOptions();
+  };
+
+  const handleDeletePost = async () => {
+    if (!user?.uid || !optionsPost) return;
+    if (user.uid !== optionsPost.userId) {
+      Alert.alert('Action not allowed', 'You can only delete your own posts.');
+      return;
+    }
+    Alert.alert('Delete post', 'This will permanently remove the post everywhere including saved copies. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          let savedBy = [];
+          try {
+            const snap = await getDoc(doc(db, 'posts', optionsPost.id));
+            if (snap.exists()) {
+              const data = snap.data();
+              if (Array.isArray(data.savedBy)) savedBy = data.savedBy;
+            }
+          } catch (_) {}
+          try {
+            // Delete post document first (content no longer accessible)
+            await deleteDoc(doc(db, 'posts', optionsPost.id));
+            setPosts((prev) => prev.filter((p) => p.id !== optionsPost.id));
+            // Remove saved references for all users who saved it
+            await Promise.all(
+              savedBy.map((uid) => deleteDoc(doc(db, 'users', uid, 'savedPosts', optionsPost.id)).catch(() => null))
+            );
+            // Best effort remove for deleter if not in savedBy
+            if (!savedBy.includes(user.uid)) {
+              try { await deleteDoc(doc(db, 'users', user.uid, 'savedPosts', optionsPost.id)); } catch (_) {}
+            }
+          } catch (e) {
+            Alert.alert('Delete failed', 'Could not delete the post.');
+          }
+          closeOptions();
+        },
+      },
+    ]);
+  };
+
+  const handleHidePost = () => {
+    if (!optionsPost) return;
+    setHiddenPostIds((prev) => new Set([...prev, optionsPost.id]));
+    closeOptions();
+  };
+
+  const handleReportPost = () => {
+    Alert.alert('Reported', 'Thank you. Our team will review this post.');
+    closeOptions();
+  };
+
+  const handleFollowAuthor = async () => {
+    if (!user || !optionsPost || user.uid === optionsPost.userId) return;
+    try {
+      const res = await followUser({
+        follower: user,
+        targetUser: { uid: optionsPost.userId, fullName: optionsPost.userName },
+      });
+      if (res.status === 'requested') Alert.alert('Request sent', 'Awaiting approval.');
+    } catch (e) {
+      Alert.alert('Follow failed', 'Unable to follow author.');
+    }
+    closeOptions();
+  };
+
+  const handleUnfollowAuthor = async () => {
+    if (!user || !optionsPost) return;
+    try {
+      await unfollowUser({ follower: user, targetUser: { uid: optionsPost.userId } });
+      Alert.alert('Updated', 'You no longer follow this author.');
+    } catch (e) {
+      Alert.alert('Unfollow failed', 'Unable to unfollow.');
+    }
+    closeOptions();
+  };
+
+  const handleShareLinkFromOptions = () => {
+    if (!optionsPost) return;
+    handleSharePost(optionsPost);
+    closeOptions();
   };
 
   const openUserProfile = useCallback(
@@ -370,7 +517,9 @@ const HomeScreen = ({ navigation }) => {
             ) : null}
             <Text style={styles.postTime}>{formatRelativeTime(item.createdAt)}</Text>
           </TouchableOpacity>
-          <Ionicons name="ellipsis-horizontal" size={24} color={colors.mediumGray} />
+          <TouchableOpacity onPress={() => handleOpenOptions(item)} activeOpacity={0.7}>
+            <Ionicons name="ellipsis-horizontal" size={24} color={colors.mediumGray} />
+          </TouchableOpacity>
         </View>
 
         {/* Post Content */}
@@ -588,6 +737,85 @@ const HomeScreen = ({ navigation }) => {
     </Modal>
   );
 
+  const renderPostOptionsModal = () => {
+    if (!optionsVisible || !optionsPost) return null;
+    const isOwn = user?.uid === optionsPost.userId;
+    const followingStatus = authorFollowState?.status || null;
+    return (
+      <Modal transparent animationType="fade" visible={optionsVisible} onRequestClose={closeOptions}>
+        <View style={styles.optionsOverlay}>
+          <View style={styles.optionsCard}>
+            <Text style={styles.optionsTitle}>Post options</Text>
+            <View style={styles.optionsList}>
+              {isOwn ? (
+                <>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleCopyText} activeOpacity={0.85}>
+                    <Ionicons name="copy" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Copy text</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleShareLinkFromOptions} activeOpacity={0.85}>
+                    <Ionicons name="share-social-outline" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Share link</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleSavePost} activeOpacity={0.85}>
+                    <Ionicons name="bookmark-outline" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Save post</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleDeletePost} activeOpacity={0.85}>
+                    <Ionicons name="trash-outline" size={20} color={colors.danger} style={styles.optionIcon} />
+                    <Text style={[styles.optionLabel, { color: colors.danger }]}>Delete post</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  {followingStatus === FOLLOW_STATUS.ACCEPTED ? (
+                    <TouchableOpacity style={styles.optionRow} onPress={handleUnfollowAuthor} activeOpacity={0.85}>
+                      <Ionicons name="person-remove" size={20} color={colors.danger} style={styles.optionIcon} />
+                      <Text style={[styles.optionLabel, { color: colors.danger }]}>Unfollow author</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.optionRow} onPress={handleFollowAuthor} activeOpacity={0.85}>
+                      <Ionicons name="person-add" size={20} color={colors.primary} style={styles.optionIcon} />
+                      <Text style={styles.optionLabel}>{followingStatus === FOLLOW_STATUS.PENDING ? 'Request pending' : 'Follow author'}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={styles.optionRow} onPress={() => openUserProfile(optionsPost.userId, { name: optionsPost.userName, avatar: optionsPost.userPhotoURL })} activeOpacity={0.85}>
+                    <Ionicons name="person-circle-outline" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>View profile</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleSavePost} activeOpacity={0.85}>
+                    <Ionicons name="bookmark-outline" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Save post</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleShareLinkFromOptions} activeOpacity={0.85}>
+                    <Ionicons name="share-social-outline" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Share link</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleCopyText} activeOpacity={0.85}>
+                    <Ionicons name="copy" size={20} color={colors.primary} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Copy text</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleHidePost} activeOpacity={0.85}>
+                    <Ionicons name="eye-off-outline" size={20} color={colors.mediumGray} style={styles.optionIcon} />
+                    <Text style={styles.optionLabel}>Hide post</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionRow} onPress={handleReportPost} activeOpacity={0.85}>
+                    <Ionicons name="flag-outline" size={20} color={colors.danger} style={styles.optionIcon} />
+                    <Text style={[styles.optionLabel, { color: colors.danger }]}>Report post</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              <TouchableOpacity style={styles.optionRow} onPress={closeOptions} activeOpacity={0.85}>
+                <Ionicons name="close-circle-outline" size={20} color={colors.textLight} style={styles.optionIcon} />
+                <Text style={styles.optionLabel}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <>
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -648,6 +876,7 @@ const HomeScreen = ({ navigation }) => {
       />
     </SafeAreaView>
     {renderShareComposerModal()}
+    {renderPostOptionsModal()}
     </>
   );
 };
@@ -1057,6 +1286,36 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '600',
   },
+  optionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  optionsCard: {
+    backgroundColor: colors.white,
+    padding: 18,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 12,
+  },
+  optionsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  optionsList: {},
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  optionIcon: { marginRight: 14 },
+  optionLabel: { fontSize: 15, color: colors.text, fontWeight: '500' },
 });
 
 export default HomeScreen;

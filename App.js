@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -41,6 +41,8 @@ import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
 import ManageUsersScreen from './src/screens/ManageUsersScreen';
 import PendingVerificationScreen from './src/screens/PendingVerificationScreen';
 import WelcomeScreen from './src/screens/welcome';
+import { subscribeToConversations } from './src/utils/chatService';
+import { subscribeToUnseenNotifications } from './src/utils/notificationService';
 
 
 const Tab = createBottomTabNavigator();
@@ -110,6 +112,11 @@ function MessagesStack() {
         name="CreateGroup"
         component={require('./src/screens/CreateGroupScreen').default}
         options={{ title: 'New Group' }}
+      />
+      <Stack.Screen
+        name="GroupInfo"
+        component={require('./src/screens/GroupInfoScreen').default}
+        options={{ title: 'Group Info' }}
       />
       <Stack.Screen 
         name="Chat" 
@@ -200,6 +207,8 @@ function AdminStack() {
 function TabNavigator() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const [unreadThreads, setUnreadThreads] = useState(0);
+  const [unseenNotifs, setUnseenNotifs] = useState(0);
   const initialRoute = (() => {
     switch (user?.role) {
       case 'expert':
@@ -213,6 +222,36 @@ function TabNavigator() {
     }
   })();
   
+  useEffect(() => {
+    if (!user?.uid) {
+      setUnreadThreads(0);
+      setUnseenNotifs(0);
+      return;
+    }
+    const unsubConvs = subscribeToConversations(
+      user.uid,
+      (snapshot) => {
+        try {
+          const list = snapshot.docs.map((d) => d.data());
+          const count = list.reduce((acc, c) => acc + ((c.unreadCounts?.[user.uid] || 0) > 0 ? 1 : 0), 0);
+          setUnreadThreads(count);
+        } catch (e) {
+          setUnreadThreads(0);
+        }
+      },
+      () => setUnreadThreads(0)
+    );
+    const unsubNotifs = subscribeToUnseenNotifications(
+      user.uid,
+      (count) => setUnseenNotifs(count),
+      () => setUnseenNotifs(0)
+    );
+    return () => {
+      try { unsubConvs && unsubConvs(); } catch (_) {}
+      try { unsubNotifs && unsubNotifs(); } catch (_) {}
+    };
+  }, [user?.uid]);
+
   return (
     <Tab.Navigator
       initialRouteName={initialRoute}
@@ -246,6 +285,17 @@ function TabNavigator() {
           paddingTop: 8,
         },
         headerShown: false,
+        tabBarBadge: route.name === 'Messages'
+          ? (unreadThreads > 0 ? (unreadThreads > 99 ? '99+' : unreadThreads) : undefined)
+          : route.name === 'Notifications'
+          ? (unseenNotifs > 0 ? (unseenNotifs > 99 ? '99+' : unseenNotifs) : undefined)
+          : undefined,
+        tabBarBadgeStyle: {
+          backgroundColor: colors.primary,
+          color: '#fff',
+          fontSize: 11,
+          minWidth: 18,
+        },
       })}
     >
       <Tab.Screen name="Home" component={HomeStack} />

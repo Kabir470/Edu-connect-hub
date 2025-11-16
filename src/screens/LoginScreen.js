@@ -63,7 +63,7 @@ const LoginScreen = ({navigation}) => {
             <View style={styles.brandIconWrap}>
               <Ionicons name="sparkles-outline" size={50} color={colors.white} />
             </View>
-            <Text style={styles.brandText}>AcademicConnect</Text>
+            <Text style={styles.brandText}>EdeX</Text>
           </View>
           <Text style={styles.welcome}>Welcome back</Text>
           <Text style={styles.subtitle}>Sign in to continue</Text>

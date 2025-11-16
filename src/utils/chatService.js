@@ -13,6 +13,7 @@ import {
 	serverTimestamp,
 	updateDoc,
 	increment,
+	setDoc,
 } from 'firebase/firestore';
 import { mergePrivacySettings } from '../constants/privacyDefaults';
 
@@ -298,4 +299,111 @@ export const createGroupConversation = async ({ creator, members = [], name, ava
 	};
 	const ref = await addDoc(conversationsCollection, payload);
 	return { id: ref.id, ...payload };
+};
+
+export const updateGroupName = async ({ conversationId, adminId, name }) => {
+	if (!conversationId || !adminId || !name?.trim()) return;
+	const ref = doc(db, 'conversations', conversationId);
+	const snap = await getDoc(ref);
+	if (!snap.exists()) throw new Error('Conversation not found');
+	const data = snap.data();
+	if (data.type !== 'group') throw new Error('Not a group');
+	if (!Array.isArray(data.admins) || !data.admins.includes(adminId)) throw new Error('Only admins can rename');
+	await updateDoc(ref, { name: name.trim() });
+};
+
+export const toggleGroupMute = async ({ conversationId, userId, muted = true }) => {
+	if (!conversationId || !userId) return;
+	const ref = doc(db, 'conversations', conversationId);
+	await updateDoc(ref, { [`muted.${userId}`]: !!muted });
+};
+
+export const addMembersToGroup = async ({ conversationId, adminId, memberIds = [], fetchProfile }) => {
+	if (!conversationId || !adminId || !Array.isArray(memberIds) || memberIds.length === 0) return;
+	const ref = doc(db, 'conversations', conversationId);
+	const snap = await getDoc(ref);
+	if (!snap.exists()) throw new Error('Conversation not found');
+	const data = snap.data();
+	if (data.type !== 'group') throw new Error('Not a group');
+	if (!Array.isArray(data.admins) || !data.admins.includes(adminId)) throw new Error('Only admins can add');
+	const current = Array.isArray(data.participants) ? data.participants : [];
+	const toAdd = Array.from(new Set(memberIds.filter(Boolean).filter((id) => !current.includes(id))));
+	if (!toAdd.length) return;
+	const details = data.participantDetails || {};
+	for (const uid of toAdd) {
+		let profile = null;
+		try {
+			profile = fetchProfile ? await fetchProfile(uid) : null;
+		} catch (_) {}
+		details[uid] = buildParticipantSnapshot(profile ? { ...profile, uid } : { uid });
+	}
+	const unread = { ...(data.unreadCounts || {}) };
+	const typing = { ...(data.typing || {}) };
+	toAdd.forEach((uid) => {
+		unread[uid] = 0;
+		typing[uid] = false;
+	});
+	await updateDoc(ref, {
+		participants: [...current, ...toAdd],
+		participantDetails: details,
+		unreadCounts: unread,
+		typing,
+	});
+};
+
+export const removeMemberFromGroup = async ({ conversationId, requesterId, memberId }) => {
+	if (!conversationId || !requesterId || !memberId) return;
+	const ref = doc(db, 'conversations', conversationId);
+	const snap = await getDoc(ref);
+	if (!snap.exists()) throw new Error('Conversation not found');
+	const data = snap.data();
+	if (data.type !== 'group') throw new Error('Not a group');
+	const isAdmin = Array.isArray(data.admins) && data.admins.includes(requesterId);
+	if (!isAdmin && requesterId !== memberId) throw new Error('Only admins can remove others');
+	const participants = (data.participants || []).filter((uid) => uid !== memberId);
+	const details = { ...(data.participantDetails || {}) };
+	delete details[memberId];
+	const unread = { ...(data.unreadCounts || {}) };
+	delete unread[memberId];
+	const typing = { ...(data.typing || {}) };
+	delete typing[memberId];
+	let admins = Array.isArray(data.admins) ? data.admins.filter((uid) => uid !== memberId) : [];
+	if (admins.length === 0 && participants.length > 0) {
+		admins = [participants[0]]; // promote first remaining member if last admin left/removed
+	}
+	await updateDoc(ref, {
+		participants,
+		participantDetails: details,
+		unreadCounts: unread,
+		typing,
+		admins,
+	});
+};
+
+export const leaveGroup = async ({ conversationId, userId }) => {
+	return removeMemberFromGroup({ conversationId, requesterId: userId, memberId: userId });
+};
+
+export const setAdminStatus = async ({ conversationId, requesterId, memberId, make = true }) => {
+	if (!conversationId || !requesterId || !memberId) return;
+	const ref = doc(db, 'conversations', conversationId);
+	const snap = await getDoc(ref);
+	if (!snap.exists()) throw new Error('Conversation not found');
+	const data = snap.data();
+	if (data.type !== 'group') throw new Error('Not a group');
+	const isRequesterAdmin = Array.isArray(data.admins) && data.admins.includes(requesterId);
+	if (!isRequesterAdmin) throw new Error('Only admins can change admin roles');
+	const participants = Array.isArray(data.participants) ? data.participants : [];
+	if (!participants.includes(memberId)) throw new Error('User is not a member');
+	let admins = Array.isArray(data.admins) ? [...data.admins] : [];
+	const alreadyAdmin = admins.includes(memberId);
+	if (make) {
+		if (!alreadyAdmin) admins.push(memberId);
+	} else {
+		if (alreadyAdmin) admins = admins.filter((id) => id !== memberId);
+		if (admins.length === 0 && participants.length > 0) {
+			throw new Error('At least one admin is required');
+		}
+	}
+	await updateDoc(ref, { admins });
 };

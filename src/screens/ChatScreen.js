@@ -713,20 +713,28 @@ const ChatScreen = ({ route, navigation }) => {
             <Text
               style={[
                 styles.headerStatus,
-                (otherTyping || (activityVisible && presenceStatus === 'online')) &&
+                (!isGroup && (otherTyping || (activityVisible && presenceStatus === 'online'))) &&
                   styles.headerStatusActive,
               ]}
             >
-              {headerStatusText}
+              {isGroup ? 'Group chat' : headerStatusText}
             </Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerActionButton} onPress={() => handleStartCall('audio')}>
-              <Ionicons name="call-outline" size={24} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerActionButton} onPress={() => handleStartCall('video')}>
-              <Ionicons name="videocam-outline" size={24} color={colors.primary} />
-            </TouchableOpacity>
+            {isGroup ? (
+              <TouchableOpacity style={styles.headerActionButton} onPress={() => navigation.navigate('GroupInfo', { conversationId })}>
+                <Ionicons name="information-circle-outline" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.headerActionButton} onPress={() => handleStartCall('audio')}>
+                  <Ionicons name="call-outline" size={24} color={colors.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerActionButton} onPress={() => handleStartCall('video')}>
+                  <Ionicons name="videocam-outline" size={24} color={colors.primary} />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 

@@ -1,4 +1,4 @@
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 const buildActorName = (actor) => {
@@ -48,4 +48,20 @@ export const createNotificationEntry = async ({
   } catch (error) {
     console.warn('Failed to create notification entry', error);
   }
+};
+
+export const subscribeToUnseenNotifications = (userId, onCount, onError) => {
+  if (!userId) return () => {};
+  const q = query(
+    collection(db, 'notifications'),
+    where('targetUserId', '==', userId),
+    where('seen', '==', false)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      onCount?.(snap.size);
+    },
+    onError
+  );
 };

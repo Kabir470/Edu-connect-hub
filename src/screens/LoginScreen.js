@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
@@ -52,31 +52,21 @@ const LoginScreen = ({navigation}) => {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', android: undefined })} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', android: 'padding' })} style={{ flex: 1 }} keyboardVerticalOffset={90}>
+        <ScrollView
+            contentContainerStyle={{ flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.container}>
           {/* Brand */}
           <View style={styles.brandRow}>
             <View style={styles.brandIconWrap}>
-              <Ionicons name="sparkles-outline" size={26} color={colors.white} />
+              <Ionicons name="sparkles-outline" size={50} color={colors.white} />
             </View>
             <Text style={styles.brandText}>AcademicConnect</Text>
           </View>
-
           <Text style={styles.welcome}>Welcome back</Text>
           <Text style={styles.subtitle}>Sign in to continue</Text>
-
-          {/* Role Selector */}
-          <View style={styles.roleWrap}>
-            {ROLES.map((r) => {
-              const active = role === r.key;
-              return (
-                <TouchableOpacity key={r.key} style={[styles.rolePill, active && styles.rolePillActive]} onPress={() => setRole(r.key)} activeOpacity={0.8}>
-                  <Ionicons name={r.icon} size={18} color={active ? colors.white : colors.text} style={{ marginRight: 6 }} />
-                  <Text style={[styles.roleLabel, active && styles.roleLabelActive]}>{r.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
 
           {/* Inputs */}
           <View style={styles.field}>
@@ -128,6 +118,7 @@ const LoginScreen = ({navigation}) => {
 
           <Text style={styles.tos}>By continuing, you agree to our Terms of Service and Privacy Policy.</Text>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -144,13 +135,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brandRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     marginBottom: 16,
+    backgroundColor: "#fbfbfc",
+    textAlign: "center",
+    padding: 8,
+    borderRadius: 4,
+    minHeight: 160,
+    justifyContent: "center",
+    boxShadow: "inset 2px 4px 12px #cfcedf7e",
+    gap: 5
   },
   brandIconWrap: {
-    width: 36,
-    height: 36,
+    padding: 5,
+    marginBottom: 10,
     borderRadius: 10,
     backgroundColor: colors.primary,
     alignItems: 'center',

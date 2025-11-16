@@ -35,6 +35,7 @@ import {
 } from '../utils/chatService';
 import { mergePrivacySettings } from '../constants/privacyDefaults';
 import { uploadChatAttachment } from '../utils/uploadService';
+import { Audio } from 'expo-av';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -112,6 +113,10 @@ const ChatScreen = ({ route, navigation }) => {
   const callStartRef = useRef(null);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const [recording, setRecording] = useState(null);
+  const [audioPreview, setAudioPreview] = useState(null); // { uri, durationMillis }
+  const [playingId, setPlayingId] = useState(null);
+  const soundRef = useRef(null);
 
   useEffect(() => {
     if (!targetProfile?.uid) return undefined;
@@ -329,13 +334,89 @@ const ChatScreen = ({ route, navigation }) => {
     }, 1500);
   };
 
+  const startRecording = async () => {
+    if (recording) return;
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Microphone permission', 'Enable microphone access to record voice messages.');
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const rec = new Audio.Recording();
+      await rec.prepareToRecordAsync(Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY);
+      await rec.startAsync();
+      setRecording(rec);
+      setAudioPreview(null);
+    } catch (error) {
+      Alert.alert('Recording failed', 'Could not start audio recording.');
+      console.warn('startRecording error', error);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      const status = await recording.getStatusAsync();
+      const uri = recording.getURI();
+      setAudioPreview({ uri, durationMillis: status.durationMillis || 0 });
+    } catch (error) {
+      Alert.alert('Stop failed', 'Could not finalize recording.');
+      console.warn('stopRecording error', error);
+    } finally {
+      setRecording(null);
+    }
+  };
+
+  const cancelAudioPreview = () => setAudioPreview(null);
+
+  const playAudio = async (attachment) => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+        setPlayingId(null);
+      }
+      if (!attachment?.url) return;
+      const { sound } = await Audio.Sound.createAsync({ uri: attachment.url }, { shouldPlay: true });
+      soundRef.current = sound;
+      setPlayingId(attachment.url);
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) {
+          setPlayingId(null);
+          sound.unloadAsync().catch(() => {});
+          soundRef.current = null;
+        }
+      });
+    } catch (error) {
+      Alert.alert('Playback error', 'Could not play this audio message.');
+      console.warn('playAudio error', error);
+    }
+  };
+
+  const toggleAudioPlayback = async (attachment) => {
+    if (playingId === attachment.url && soundRef.current) {
+      const status = await soundRef.current.getStatusAsync();
+      if (status.isPlaying) {
+        await soundRef.current.pauseAsync();
+        setPlayingId(null);
+      } else {
+        await soundRef.current.playAsync();
+        setPlayingId(attachment.url);
+      }
+      return;
+    }
+    playAudio(attachment);
+  };
+
   const handleSend = async () => {
     if (!messagingAllowed) {
       Alert.alert('Messaging unavailable', 'This member has disabled new messages.');
       return;
     }
     if (
-      (!messageText.trim() && !pendingAttachments.length) ||
+      (!messageText.trim() && !pendingAttachments.length && !audioPreview) ||
       !conversationId ||
       !user?.uid ||
       !targetProfile?.uid
@@ -346,6 +427,22 @@ const ChatScreen = ({ route, navigation }) => {
     setUploadingAttachments(Boolean(pendingAttachments.length));
     try {
       const uploaded = pendingAttachments.length ? await uploadPendingAttachments() : [];
+      if (audioPreview) {
+        const audioUpload = await uploadChatAttachment({
+          uri: audioPreview.uri,
+          conversationId,
+          filename: `voice-${Date.now()}.m4a`,
+          mimeType: 'audio/m4a',
+        });
+        uploaded.push({
+          url: audioUpload.downloadURL,
+          storagePath: audioUpload.storagePath,
+          mimeType: 'audio/m4a',
+          kind: 'audio',
+          name: 'Voice message',
+          durationMillis: audioPreview.durationMillis,
+        });
+      }
       await sendMessage({
         conversationId,
         text: messageText,
@@ -355,6 +452,7 @@ const ChatScreen = ({ route, navigation }) => {
       });
       setMessageText('');
       setPendingAttachments([]);
+      setAudioPreview(null);
       updateTypingStatus(conversationId, user.uid, false);
     } catch (error) {
       Alert.alert('Message failed', 'Unable to send your message right now.');
@@ -478,6 +576,24 @@ const ChatScreen = ({ route, navigation }) => {
           onPress={() => handleOpenAttachment(attachment)}
         >
           <Image source={{ uri: attachment.url }} style={styles.messageImage} />
+        </TouchableOpacity>
+      );
+    }
+    if (attachment.kind === 'audio') {
+      const isPlaying = playingId === attachment.url;
+      const durationSec = attachment.durationMillis ? Math.round(attachment.durationMillis / 1000) : null;
+      return (
+        <TouchableOpacity
+          key={attachment.url}
+          style={styles.audioMessageTile}
+          onPress={() => toggleAudioPlayback(attachment)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name={isPlaying ? 'pause' : 'play'} size={20} color={colors.primary} style={{ marginRight: 10 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.audioMessageLabel}>{attachment.name || 'Voice message'}</Text>
+            {durationSec ? <Text style={styles.audioMessageMeta}>{durationSec}s</Text> : null}
+          </View>
         </TouchableOpacity>
       );
     }
@@ -642,6 +758,13 @@ const ChatScreen = ({ route, navigation }) => {
               color={uploadingAttachments ? colors.border : colors.primary}
             />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.recordButton}
+            onPress={recording ? stopRecording : startRecording}
+            disabled={sending || uploadingAttachments}
+          >
+            <Ionicons name={recording ? 'mic' : 'mic-outline'} size={24} color={recording ? colors.danger : colors.primary} />
+          </TouchableOpacity>
           <TextInput
             style={styles.input}
             placeholder="Type a message…"
@@ -652,19 +775,30 @@ const ChatScreen = ({ route, navigation }) => {
             editable={messagingAllowed}
             selectTextOnFocus={messagingAllowed}
           />
+          {audioPreview && (
+            <View style={styles.audioPreviewChip}>
+              <Ionicons name="mic" size={16} color={colors.white} />
+              <Text style={styles.audioPreviewText}>{Math.max(1, Math.round((audioPreview.durationMillis || 0) / 1000))}s</Text>
+              <TouchableOpacity onPress={cancelAudioPreview} style={styles.audioPreviewRemove}>
+                <Ionicons name="close" size={14} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+          )}
           <TouchableOpacity
             style={[
               styles.sendButton,
-              (messageText.trim() || pendingAttachments.length) &&
+              (messageText.trim() || pendingAttachments.length || audioPreview) &&
                 messagingAllowed &&
+                !recording &&
                 styles.sendButtonActive,
             ]}
             onPress={handleSend}
             disabled={
               !messagingAllowed ||
-              (!messageText.trim() && !pendingAttachments.length) ||
+              (!messageText.trim() && !pendingAttachments.length && !audioPreview) ||
               sending ||
-              uploadingAttachments
+              uploadingAttachments ||
+              recording
             }
           >
             {sending || uploadingAttachments ? (
@@ -673,7 +807,7 @@ const ChatScreen = ({ route, navigation }) => {
               <Ionicons
                 name="send"
                 size={22}
-                color={messageText.trim() || pendingAttachments.length ? colors.white : colors.textLight}
+                color={messageText.trim() || pendingAttachments.length || audioPreview ? colors.white : colors.textLight}
               />
             )}
           </TouchableOpacity>
@@ -856,6 +990,26 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: colors.white,
   },
+  audioMessageTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: colors.white,
+    marginBottom: 4,
+  },
+  audioMessageLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  audioMessageMeta: {
+    fontSize: 11,
+    color: colors.textLight,
+    marginTop: 2,
+  },
   messageFileName: {
     fontSize: 13,
     fontWeight: '600',
@@ -877,6 +1031,35 @@ const styles = StyleSheet.create({
   },
   attachButton: {
     marginRight: 10,
+  },
+  recordButton: {
+    marginRight: 10,
+  },
+  audioPreviewChip: {
+    position: 'absolute',
+    left: 70,
+    bottom: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  audioPreviewText: {
+    color: colors.white,
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  audioPreviewRemove: {
+    marginLeft: 8,
+    backgroundColor: colors.danger,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   input: {
     flex: 1,

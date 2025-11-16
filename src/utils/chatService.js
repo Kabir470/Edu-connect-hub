@@ -140,6 +140,9 @@ const buildAttachmentSummary = (attachments = []) => {
 	if (kinds.every((kind) => kind === 'video')) {
 		return attachments.length > 1 ? 'Sent multiple videos' : 'Sent a video';
 	}
+	if (kinds.every((kind) => kind === 'audio')) {
+		return attachments.length > 1 ? 'Sent multiple voice messages' : 'Sent a voice message';
+	}
 	if (kinds.every((kind) => kind === 'file')) {
 		return attachments.length > 1 ? 'Sent multiple files' : 'Sent a file';
 	}

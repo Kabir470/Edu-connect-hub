@@ -33,7 +33,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { findPublicUserByUsername, validateUsername } from '../utils/usernameService';
+// Removed user search from Home; feature moved to Followers & Requests screen.
 
 const COMPOSE_CARD_HEIGHT = 110;
 const SHARE_BASE_URL = 'https://academicconnect.app/posts';
@@ -87,11 +87,7 @@ const HomeScreen = ({ navigation }) => {
   const [shareComposerPost, setShareComposerPost] = useState(null);
   const [shareComposerNote, setShareComposerNote] = useState('');
   const [shareSaving, setShareSaving] = useState(false);
-  const [usernameSearch, setUsernameSearch] = useState('');
-  const [usernameResult, setUsernameResult] = useState(null);
-  const [searchingUsername, setSearchingUsername] = useState(false);
-  const [usernameSearchMessage, setUsernameSearchMessage] = useState('');
-  const [usernameSearchTone, setUsernameSearchTone] = useState('muted');
+  // User search states removed (migrated to FollowRelationsScreen)
   const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -117,58 +113,7 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [user, feedFilter]);
 
-  const handleUsernameSearchChange = (text) => {
-    setUsernameSearch(text);
-    if (!text) {
-      setUsernameResult(null);
-      setUsernameSearchMessage('');
-      setUsernameSearchTone('muted');
-    }
-  };
-
-  const handleUsernameLookup = async () => {
-    const raw = usernameSearch.trim().replace(/^@/, '');
-    if (!raw) {
-      setUsernameResult(null);
-      setUsernameSearchMessage('Enter a username to search.');
-      setUsernameSearchTone('error');
-      return;
-    }
-    const validation = validateUsername(raw);
-    if (!validation.ok) {
-      setUsernameResult(null);
-      setUsernameSearchMessage(validation.message);
-      setUsernameSearchTone('error');
-      return;
-    }
-    setSearchingUsername(true);
-    setUsernameSearchMessage('');
-    try {
-      const match = await findPublicUserByUsername(validation.normalized);
-      if (!match) {
-        setUsernameResult(null);
-        setUsernameSearchMessage(`No user found for @${validation.normalized}.`);
-        setUsernameSearchTone('error');
-        return;
-      }
-      if (!match.profilePublic) {
-        setUsernameResult(null);
-        setUsernameSearchMessage('That profile is private and cannot be viewed.');
-        setUsernameSearchTone('error');
-        return;
-      }
-      setUsernameResult(match);
-      setUsernameSearchMessage('Tap the result to view the profile.');
-      setUsernameSearchTone('muted');
-    } catch (error) {
-      console.warn('Username lookup failed', error);
-      setUsernameResult(null);
-      setUsernameSearchMessage('Unable to search right now. Try again later.');
-      setUsernameSearchTone('error');
-    } finally {
-      setSearchingUsername(false);
-    }
-  };
+  // Username search handlers removed.
 
   const filteredPosts = useMemo(() => {
     if (feedFilter === 'mine') {
@@ -576,75 +521,7 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.feedToggleTip}>Sign in to see posts you've shared.</Text>
         )}
 
-        <View style={styles.usernameSearchCard}>
-          <Text style={styles.usernameSearchTitle}>Find a public profile</Text>
-          <View style={styles.usernameSearchRow}>
-            <Ionicons name="at" size={18} color={colors.textLight} style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.usernameSearchInput}
-              placeholder="Search by username"
-              placeholderTextColor={colors.textLight}
-              autoCapitalize="none"
-              value={usernameSearch}
-              onChangeText={handleUsernameSearchChange}
-              onSubmitEditing={handleUsernameLookup}
-            />
-            <TouchableOpacity
-              style={styles.usernameSearchButton}
-              onPress={handleUsernameLookup}
-              disabled={searchingUsername}
-            >
-              {searchingUsername ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <Text style={styles.usernameSearchButtonText}>Search</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {usernameResult ? (
-            <TouchableOpacity
-              style={styles.usernameResultCard}
-              activeOpacity={0.85}
-              onPress={() =>
-                openUserProfile(usernameResult.id, {
-                  name: usernameResult.fullName || usernameResult.email || `@${usernameResult.username}`,
-                  avatar: usernameResult.profileImageURL,
-                  role: usernameResult.role || 'Member',
-                  username: usernameResult.username,
-                })
-              }
-            >
-              <Image
-                source={usernameResult.profileImageURL ? { uri: usernameResult.profileImageURL } : DEFAULT_AVATAR}
-                style={styles.usernameResultAvatar}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.usernameResultName} numberOfLines={1}>
-                  {usernameResult.fullName || usernameResult.email || 'AcademicConnect user'}
-                </Text>
-                <Text style={styles.usernameResultHandle}>@{usernameResult.username}</Text>
-                {usernameResult.bio ? (
-                  <Text style={styles.usernameResultBio} numberOfLines={2}>
-                    {usernameResult.bio}
-                  </Text>
-                ) : null}
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
-            </TouchableOpacity>
-          ) : null}
-
-          {usernameSearchMessage ? (
-            <Text
-              style={[
-                styles.usernameSearchFeedback,
-                usernameSearchTone === 'error' && styles.usernameSearchFeedbackError,
-              ]}
-            >
-              {usernameSearchMessage}
-            </Text>
-          ) : null}
-        </View>
+        {/* Username search removed from Home. */}
       </View>
     );
   };

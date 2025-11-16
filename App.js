@@ -24,6 +24,7 @@ import EditProfileScreen from './src/screens/EditProfileScreen';
 import ResumeScreen from './src/screens/ResumeScreen';
 import EducationExperienceScreen from './src/screens/EducationExperienceScreen';
 import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
+import FollowRelationsScreen from './src/screens/FollowRelationsScreen';
 import SavedPostsScreen from './src/screens/SavedPostsScreen';
 import JobApplicationsScreen from './src/screens/JobApplicationsScreen';
 import ScheduledConsultationsScreen from './src/screens/ScheduledConsultationsScreen';
@@ -139,10 +140,16 @@ function ProfileStack() {
         component={ProfileScreen}
         options={{ title: 'Profile', headerShown: false }}
       />
+      <Stack.Screen
+        name="UserProfile"
+        component={UserProfileScreen}
+        options={{ title: 'Member Profile' }}
+      />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Edit Profile' }} />
       <Stack.Screen name="Resume" component={ResumeScreen} options={{ title: 'My CV / Resume' }} />
       <Stack.Screen name="EducationExperience" component={EducationExperienceScreen} options={{ title: 'Education & Experience' }} />
       <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} options={{ title: 'Privacy & Security' }} />
+      <Stack.Screen name="FollowRelations" component={FollowRelationsScreen} options={{ title: 'Followers & Requests' }} />
       <Stack.Screen name="SavedPosts" component={SavedPostsScreen} options={{ title: 'Saved Posts' }} />
       <Stack.Screen name="JobApplications" component={JobApplicationsScreen} options={{ title: 'My Job Applications' }} />
       <Stack.Screen name="ScheduledConsultations" component={ScheduledConsultationsScreen} options={{ title: 'Scheduled Consultations' }} />

@@ -145,6 +145,14 @@ const PrivacySecurityScreen = () => {
           : 'Only approved followers can view your profile',
       },
       {
+        key: 'autoApproveFollowers',
+        icon: 'people-outline',
+        label: settings.autoApproveFollowers ? 'Auto-approve followers' : 'Require approval',
+        description: settings.autoApproveFollowers
+          ? 'New followers are accepted instantly while profile is public'
+          : 'Each follow request must be approved manually',
+      },
+      {
         key: 'showActivityStatus',
         icon: 'pulse-outline',
         label: 'Show activity status',

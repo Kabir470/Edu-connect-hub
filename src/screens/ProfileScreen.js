@@ -6,62 +6,92 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  ActivityIndicator,
   Switch,
+  Alert,
   Share,
   Modal,
-  ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  approveFollowRequest,
-  rejectFollowRequest,
-  subscribeToIncomingRequests,
-} from '../utils/followService';
+  collection,
+  doc,
+  getDoc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+import { FOLLOW_STATUS, subscribeToIncomingRequests } from '../utils/followService';
 
-const PREFERENCES_STORAGE_KEY = 'profile:preferences';
-const LANGUAGE_OPTIONS = ['English (US)', 'English (UK)', 'Bangla', 'Hindi', 'Spanish'];
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
+const LANGUAGE_OPTIONS = ['English', 'Bangla', 'Spanish'];
+const PREFERENCES_STORAGE_KEY = 'profile.preferences';
 
 const ProfileScreen = ({ navigation }) => {
-  const { signOut, user } = useAuth();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const { user, signOut } = useAuth();
+  const [profileData, setProfileData] = useState({});
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [followersPreview, setFollowersPreview] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [followersLoading, setFollowersLoading] = useState(false);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
   const [language, setLanguage] = useState(LANGUAGE_OPTIONS[0]);
-  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [savingPreference, setSavingPreference] = useState(false);
-
-  const [profileData, setProfileData] = useState(null);
-  const [incomingRequests, setIncomingRequests] = useState([]);
-  const [requestsLoading, setRequestsLoading] = useState(true);
   const [requestActioningId, setRequestActioningId] = useState(null);
+  const [preferencesSnapshot, setPreferencesSnapshot] = useState({});
 
-  const applyPreferenceState = (prefs = {}) => {
-    if (typeof prefs.notificationsEnabled === 'boolean') setNotificationsEnabled(prefs.notificationsEnabled);
-    if (typeof prefs.darkModeEnabled === 'boolean') setDarkModeEnabled(prefs.darkModeEnabled);
-    if (typeof prefs.language === 'string') setLanguage(prefs.language);
+  const navigateTo = (route) => {
+    if (!navigation || !route) return;
+    try {
+      navigation.navigate(route);
+    } catch (e) {
+      console.warn('Navigation failed for route', route, e);
+    }
   };
 
-  const persistPreferences = async (partial = {}) => {
+  const applyPreferenceState = (prefs = {}) => {
     const next = {
       notificationsEnabled,
       darkModeEnabled,
       language,
-      ...partial,
+      ...prefs,
     };
-    applyPreferenceState(next);
+    if (typeof next.notificationsEnabled === 'boolean') {
+      setNotificationsEnabled(next.notificationsEnabled);
+    }
+    if (typeof next.darkModeEnabled === 'boolean') {
+      setDarkModeEnabled(next.darkModeEnabled);
+    }
+    if (typeof next.language === 'string') {
+      setLanguage(next.language);
+    }
+    setPreferencesSnapshot(next);
+  };
+
+  const persistPreferences = async (newPrefs) => {
+    setSavingPreference(true);
     try {
-      setSavingPreference(true);
-      await AsyncStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(next));
-      if (user?.uid) {
-        await updateDoc(doc(db, 'users', user.uid), { preferences: next });
-      }
+      const updatedPrefs = {
+        notificationsEnabled,
+        darkModeEnabled,
+        language,
+        ...preferencesSnapshot,
+        ...newPrefs,
+      };
+      setPreferencesSnapshot(updatedPrefs);
+      await AsyncStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(updatedPrefs));
+      await updateDoc(doc(db, 'users', user.uid), { preferences: updatedPrefs });
+      applyPreferenceState(updatedPrefs);
     } catch (error) {
       console.warn('Failed to save preferences', error);
     } finally {
@@ -69,46 +99,36 @@ const ProfileScreen = ({ navigation }) => {
     }
   };
 
+  const openLanguageModal = () => {
+    setLanguageModalVisible(true);
+  };
+
+  const closeLanguageModal = () => {
+    setLanguageModalVisible(false);
+  };
+
+  const handleLanguageSelect = async (lang) => {
+    closeLanguageModal();
+    await persistPreferences({ language: lang });
+  };
+
   const handleShareProfile = async () => {
     try {
-      const shareLink = `https://academicconnect.app/u/${user?.uid}`;
       await Share.share({
-        message: `${profileData?.name || 'My'} AcademicConnect profile\n${shareLink}`,
+        message: `Check out my profile on AcademicConnect: ${profileData.name} - ${profileData.email}`,
       });
     } catch (error) {
-      console.warn('Share profile failed', error);
+      console.warn('Failed to share profile', error);
     }
   };
 
-  const navigateTo = (route) => navigation.navigate(route);
-
-  const openLanguageModal = () => setLanguageModalVisible(true);
-  const closeLanguageModal = () => setLanguageModalVisible(false);
-  const handleLanguageSelect = (value) => {
-    closeLanguageModal();
-    persistPreferences({ language: value });
-  };
-
   const handleRequestAction = async (request, action) => {
-    if (!user?.uid || !request?.id) return;
+    setRequestActioningId(request.id);
     try {
-      setRequestActioningId(request.id);
-      if (action === 'accept') {
-        await approveFollowRequest({
-          followDocId: request.id,
-          followerId: request.followerId,
-          targetUser: user,
-        });
-      } else {
-        await rejectFollowRequest({
-          followDocId: request.id,
-          followerId: request.followerId,
-          targetUser: user,
-        });
-      }
+      // TODO: Implement accept/decline request
+      console.log(`Request ${action}ed:`, request);
     } catch (error) {
-      console.warn('Follow request update failed', error);
-      Alert.alert('Unable to update request', 'Please try again in a moment.');
+      console.warn(`Failed to ${action} request`, error);
     } finally {
       setRequestActioningId(null);
     }
@@ -116,12 +136,6 @@ const ProfileScreen = ({ navigation }) => {
 
   const hydrateRequests = useCallback(
     async (requests = [], { signal } = {}) => {
-      if (signal?.aborted) return;
-      if (!requests.length) {
-        setIncomingRequests([]);
-        setRequestsLoading(false);
-        return;
-      }
       setRequestsLoading(true);
       try {
         const enriched = await Promise.all(
@@ -207,6 +221,61 @@ const ProfileScreen = ({ navigation }) => {
     };
   }, [user?.uid, hydrateRequests]);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setFollowersPreview([]);
+      setFollowersLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setFollowersLoading(true);
+    const followersQuery = query(
+      collection(db, 'followRelationships'),
+      where('targetUserId', '==', user.uid),
+      where('status', '==', FOLLOW_STATUS.ACCEPTED),
+      orderBy('createdAt', 'desc'),
+      limit(5)
+    );
+    const unsubscribe = onSnapshot(
+      followersQuery,
+      async (snap) => {
+        setFollowersLoading(true);
+        const relationships = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        try {
+          const enriched = await Promise.all(
+            relationships.map(async (rel) => {
+              try {
+                const followerSnap = await getDoc(doc(db, 'users', rel.followerId));
+                const followerProfile = followerSnap.exists() ? followerSnap.data() : null;
+                return { ...rel, followerProfile };
+              } catch (error) {
+                console.warn('Failed to load follower profile', error);
+                return { ...rel, followerProfile: null };
+              }
+            })
+          );
+          if (!cancelled) {
+            setFollowersPreview(enriched);
+          }
+        } finally {
+          if (!cancelled) {
+            setFollowersLoading(false);
+          }
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setFollowersPreview([]);
+          setFollowersLoading(false);
+        }
+      }
+    );
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [user?.uid]);
+
   const menuSections = [
     {
       title: 'Account',
@@ -215,6 +284,7 @@ const ProfileScreen = ({ navigation }) => {
         { icon: 'document-text-outline', label: 'My CV/Resume', color: colors.secondary, onPress: () => navigateTo('Resume') },
         { icon: 'school-outline', label: 'Education & Experience', color: colors.accent, onPress: () => navigateTo('EducationExperience') },
         { icon: 'shield-checkmark-outline', label: 'Privacy & Security', color: colors.info, onPress: () => navigateTo('PrivacySecurity') },
+        { icon: 'people-outline', label: 'Followers & Requests', color: colors.primary, onPress: () => navigateTo('FollowRelations') },
       ],
     },
     {
@@ -334,85 +404,6 @@ const ProfileScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
         </View>
-
-        {user?.uid ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Follow requests</Text>
-              {requestsLoading ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Text style={styles.sectionMeta}>
-                  {incomingRequests.length ? `${incomingRequests.length} pending` : 'None pending'}
-                </Text>
-              )}
-            </View>
-            {requestsLoading ? (
-              <View style={styles.requestsLoadingWrap}>
-                <ActivityIndicator size="small" color={colors.primary} />
-              </View>
-            ) : incomingRequests.length ? (
-              incomingRequests.map((request) => {
-                const follower = request.followerProfile || {};
-                const avatarSource = follower.profileImageURL ? { uri: follower.profileImageURL } : DEFAULT_AVATAR;
-                const subtitle = follower.username
-                  ? `@${follower.username}`
-                  : follower.email || 'AcademicConnect member';
-                const actioning = requestActioningId === request.id;
-                return (
-                  <View key={request.id} style={styles.requestCard}>
-                    <TouchableOpacity
-                      style={styles.requestInfo}
-                      activeOpacity={0.85}
-                      onPress={() =>
-                        navigation.navigate('UserProfile', {
-                          userId: request.followerId,
-                          fallback: {
-                            name: follower.fullName || 'AcademicConnect member',
-                            username: follower.username || null,
-                            avatar: follower.profileImageURL || null,
-                          },
-                        })
-                      }
-                    >
-                      <Image source={avatarSource} style={styles.requestAvatar} />
-                      <View>
-                        <Text style={styles.requestName}>{follower.fullName || 'AcademicConnect member'}</Text>
-                        <Text style={styles.requestSubtitle}>{subtitle}</Text>
-                      </View>
-                    </TouchableOpacity>
-                    <View style={styles.requestButtonsRow}>
-                      <TouchableOpacity
-                        style={[styles.requestButton, styles.requestDeclineButton]}
-                        onPress={() => handleRequestAction(request, 'decline')}
-                        disabled={actioning}
-                      >
-                        {actioning ? (
-                          <ActivityIndicator size="small" color={colors.white} />
-                        ) : (
-                          <Text style={styles.requestButtonText}>Decline</Text>
-                        )}
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.requestButton, styles.requestAcceptButton]}
-                        onPress={() => handleRequestAction(request, 'accept')}
-                        disabled={actioning}
-                      >
-                        {actioning ? (
-                          <ActivityIndicator size="small" color={colors.white} />
-                        ) : (
-                          <Text style={styles.requestButtonText}>Accept</Text>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })
-            ) : (
-              <Text style={styles.emptyRequestText}>No pending follow requests right now.</Text>
-            )}
-          </View>
-        ) : null}
 
         {/* Menu Sections */}
         {menuSections.map((section, sectionIndex) => (
@@ -725,6 +716,29 @@ const styles = StyleSheet.create({
   emptyRequestText: {
     fontSize: 14,
     color: colors.textLight,
+  },
+  followerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  followerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  followerName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  followerSubtitle: {
+    fontSize: 13,
+    color: colors.textLight,
+    marginTop: 2,
   },
   menuCard: {
     backgroundColor: colors.white,

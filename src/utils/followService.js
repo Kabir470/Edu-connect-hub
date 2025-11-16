@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   increment,
   onSnapshot,
   orderBy,
@@ -64,8 +65,25 @@ export const followUser = async ({ follower, targetUser }) => {
   const followRef = doc(db, FOLLOW_COLLECTION, followDocId);
   const followerRef = doc(db, USERS_COLLECTION, follower.uid);
   const targetRef = doc(db, USERS_COLLECTION, targetUser.uid);
-  const targetIsPrivate = targetUser?.privacySettings?.profilePublic === false;
-  const nextStatus = targetIsPrivate ? FOLLOW_STATUS.PENDING : FOLLOW_STATUS.ACCEPTED;
+
+  // Always fetch latest target user privacy settings to avoid relying on caller.
+  let targetPrivacy = targetUser.privacySettings || {};
+  try {
+    const snap = await getDoc(targetRef);
+    if (snap.exists()) {
+      const data = snap.data() || {};
+      targetPrivacy = { ...(data.privacySettings || targetPrivacy) };
+      // propagate fullName for notification consistency
+      targetUser.fullName = data.fullName || targetUser.fullName;
+    }
+  } catch (e) {
+    // Silent fallback; we'll treat missing as requiring approval.
+  }
+
+  const targetIsPublic = targetPrivacy.profilePublic !== false; // default public
+  // Only auto-approve when explicit true; missing or false requires approval.
+  const autoApprove = targetIsPublic && targetPrivacy.autoApproveFollowers === true;
+  const nextStatus = autoApprove ? FOLLOW_STATUS.ACCEPTED : FOLLOW_STATUS.PENDING;
 
   const result = await runTransaction(db, async (transaction) => {
     const followSnap = await transaction.get(followRef);
@@ -230,19 +248,29 @@ export const rejectFollowRequest = async ({ followDocId, followerId, targetUser 
 
 export const subscribeToIncomingRequests = (targetUserId, callback) => {
   if (!targetUserId || typeof callback !== 'function') return () => {};
+  // Removed orderBy to avoid composite index requirement that may prevent listener firing.
   const q = query(
     collection(db, FOLLOW_COLLECTION),
     where('targetUserId', '==', targetUserId),
-    where('status', '==', FOLLOW_STATUS.PENDING),
-    orderBy('createdAt', 'desc')
+    where('status', '==', FOLLOW_STATUS.PENDING)
   );
   return onSnapshot(
     q,
     (snap) => {
-      const items = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      // Sort client-side by createdAt desc if available.
+      const items = snap.docs
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+        .sort((a, b) => {
+          const aTs = a.createdAt?.seconds || 0;
+          const bTs = b.createdAt?.seconds || 0;
+          return bTs - aTs;
+        });
       callback(items);
     },
-    () => callback([])
+    (error) => {
+      console.warn('Incoming requests listener error', error?.code || error?.message || error);
+      callback([]);
+    }
   );
 };
 

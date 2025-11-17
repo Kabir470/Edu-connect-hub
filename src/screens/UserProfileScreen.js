@@ -335,6 +335,16 @@ const UserProfileScreen = ({ route, navigation }) => {
               </TouchableOpacity>
             </View>
           )}
+
+          {!isOwnProfile && (
+            <TouchableOpacity
+              style={styles.portfolioButton}
+              onPress={() => navigation.navigate('Portfolio', { screen: 'PortfolioPreview', params: { userId } })}
+            >
+              <Ionicons name="folder-outline" size={18} color={colors.primary} />
+              <Text style={styles.portfolioButtonText}>View Portfolio</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {profileLocked ? (
@@ -521,6 +531,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 16,
     width: '100%',
+  },
+  portfolioButton: {
+    marginTop: 10,
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  portfolioButtonText: {
+    color: colors.primary,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   primaryButton: {
     flex: 1,

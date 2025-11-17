@@ -43,6 +43,11 @@ import PendingVerificationScreen from './src/screens/PendingVerificationScreen';
 import WelcomeScreen from './src/screens/welcome';
 import { subscribeToConversations } from './src/utils/chatService';
 import { subscribeToUnseenNotifications } from './src/utils/notificationService';
+import PortfolioScreen from './src/screens/PortfolioScreen';
+import CreateProjectScreen from './src/screens/CreateProjectScreen';
+import ProjectDetailScreen from './src/screens/ProjectDetailScreen';
+import PortfolioBuilderScreen from './src/screens/PortfolioBuilderScreen';
+import PortfolioPreviewScreen from './src/screens/PortfolioPreviewScreen';
 
 
 const Tab = createBottomTabNavigator();
@@ -269,6 +274,8 @@ function TabNavigator() {
             iconName = focused ? 'notifications' : 'notifications-outline';
           } else if (route.name === 'Experts') {
             iconName = focused ? 'school' : 'school-outline';
+          } else if (route.name === 'Portfolio') {
+            iconName = focused ? 'folder' : 'folder-outline';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
           }
@@ -303,11 +310,44 @@ function TabNavigator() {
   <Tab.Screen name="Messages" component={MessagesStack} />
   <Tab.Screen name="Notifications" component={NotificationsScreen} />
       <Tab.Screen name="Experts" component={ExpertsStack} />
+      <Tab.Screen name="Portfolio" component={PortfolioStack} />
       {user?.role === 'admin' && (
         <Tab.Screen name="Admin" component={AdminStack} />
       )}
       <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
+  );
+}
+
+function PortfolioStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="PortfolioHome"
+        component={PortfolioScreen}
+        options={{ title: 'Portfolio' }}
+      />
+      <Stack.Screen
+        name="PortfolioPreview"
+        component={PortfolioPreviewScreen}
+        options={{ title: 'Portfolio Preview' }}
+      />
+      <Stack.Screen
+        name="PortfolioBuilder"
+        component={PortfolioBuilderScreen}
+        options={{ title: 'Code Portfolio' }}
+      />
+      <Stack.Screen
+        name="CreateProject"
+        component={CreateProjectScreen}
+        options={{ title: 'New Project' }}
+      />
+      <Stack.Screen
+        name="ProjectDetail"
+        component={ProjectDetailScreen}
+        options={{ title: 'Project' }}
+      />
+    </Stack.Navigator>
   );
 }
 

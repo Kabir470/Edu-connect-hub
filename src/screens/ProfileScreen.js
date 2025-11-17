@@ -280,7 +280,7 @@ const ProfileScreen = ({ navigation }) => {
     {
       title: 'Account',
       items: [
-        { icon: 'person-outline', label: 'Edit Profile', color: colors.primary, onPress: () => navigateTo('EditProfile') },
+        { icon: 'person-outline', label: 'Portfolio', color: colors.primary, onPress: () => navigation.navigate('Portfolio', { screen: 'PortfolioPreview' }) },
         { icon: 'document-text-outline', label: 'My CV/Resume', color: colors.secondary, onPress: () => navigateTo('Resume') },
         { icon: 'school-outline', label: 'Education & Experience', color: colors.accent, onPress: () => navigateTo('EducationExperience') },
         { icon: 'shield-checkmark-outline', label: 'Privacy & Security', color: colors.info, onPress: () => navigateTo('PrivacySecurity') },
@@ -394,9 +394,9 @@ const ProfileScreen = ({ navigation }) => {
 
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.primaryButton} onPress={() => navigateTo('EditProfile')}>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Portfolio', { screen: 'PortfolioPreview' })}>
               <Ionicons name="create-outline" size={20} color={colors.white} />
-              <Text style={styles.primaryButtonText}>Edit Profile</Text>
+              <Text style={styles.primaryButtonText}>Portfolio</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.secondaryButton} onPress={handleShareProfile}>
               <Ionicons name="share-social-outline" size={20} color={colors.primary} />

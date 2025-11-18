@@ -38,6 +38,8 @@ import {
   getDoc,
 } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import SubRolePills from '../components/SubRolePills';
+import { formatRoleLabels } from '../utils/roleUtils';
 // Removed user search from Home; feature moved to Followers & Requests screen.
 
 const COMPOSE_CARD_HEIGHT = 110;
@@ -78,6 +80,7 @@ const buildSharedSnapshot = (postItem) => ({
   userName: postItem.userName || postItem.userEmail || 'User',
   userPhotoURL: postItem.userPhotoURL || null,
   role: postItem.role || '',
+  subRoles: Array.isArray(postItem.subRoles) ? postItem.subRoles : [],
   content: postItem.content || '',
   image: postItem.image || null,
   createdAt: postItem.createdAt || null,
@@ -153,6 +156,7 @@ const HomeScreen = ({ navigation }) => {
           userEmail: user.email,
           userName: userDisplayName,
           role: user.role || null,
+          subRoles: Array.isArray(user.subRoles) ? user.subRoles : [],
           userPhotoURL: user.profileImageURL || null,
           content: note,
           sharedPostId: originalPost.id,
@@ -415,11 +419,19 @@ const HomeScreen = ({ navigation }) => {
     const authorName = isCurrentUserPost
       ? user.fullName?.trim() || user.email?.split('@')[0] || 'You'
       : item.userName || item.userEmail || 'User';
-    const roleLabel = isCurrentUserPost ? user.role || 'Member' : item.role || 'Member';
+    const primaryRoleValue = isCurrentUserPost ? user?.role : item.role;
+    const authorSubRoles = isCurrentUserPost
+      ? (Array.isArray(user?.subRoles) ? user.subRoles : [])
+      : (Array.isArray(item.subRoles) ? item.subRoles : []);
+    const roleLabel = formatRoleLabels(
+      authorSubRoles,
+      isCurrentUserPost ? user?.role || 'Member' : item.role || 'Member'
+    );
     const authorAvatarURL = isCurrentUserPost ? user.profileImageURL || null : item.userPhotoURL || null;
     const authorAvatarSource = authorAvatarURL ? { uri: authorAvatarURL } : DEFAULT_AVATAR;
     const originalAuthor = sharedSnapshot?.userName || 'original post';
-    const originalRoleLabel = sharedSnapshot?.role || '';
+    const sharedSubRoles = Array.isArray(sharedSnapshot?.subRoles) ? sharedSnapshot.subRoles : [];
+    const originalRoleLabel = formatRoleLabels(sharedSubRoles, sharedSnapshot?.role || '');
     const shareSubtitle = isShare ? `Shared from ${originalAuthor}` : null;
 
     const renderPrimaryContent = () => (
@@ -448,7 +460,8 @@ const HomeScreen = ({ navigation }) => {
               openUserProfile(sharedSnapshot.userId, {
                 name: sharedSnapshot.userName || 'User',
                 avatar: sharedSnapshot.userPhotoURL,
-                role: sharedSnapshot.role || '',
+                role: sharedSnapshot?.role || 'Member',
+                subRoles: sharedSubRoles,
               })
             }
           >
@@ -458,9 +471,12 @@ const HomeScreen = ({ navigation }) => {
             />
             <View style={styles.sharedMeta}>
               <Text style={styles.sharedAuthor}>{sharedSnapshot.userName || 'User'}</Text>
-              {originalRoleLabel ? (
-                <Text style={styles.sharedRole}>{originalRoleLabel}</Text>
-              ) : null}
+              <SubRolePills
+                primaryRole={sharedSnapshot?.role}
+                subRoles={sharedSubRoles}
+                fallbackLabel={originalRoleLabel}
+                style={styles.sharedRole}
+              />
               <Text style={styles.sharedTime}>{formatRelativeTime(sharedSnapshot.createdAt)}</Text>
             </View>
           </TouchableOpacity>
@@ -490,7 +506,8 @@ const HomeScreen = ({ navigation }) => {
               openUserProfile(item.userId, {
                 name: authorName,
                 avatar: authorAvatarURL,
-                role: roleLabel,
+                role: primaryRoleValue || 'Member',
+                subRoles: authorSubRoles,
               })
             }
             activeOpacity={0.85}
@@ -503,7 +520,8 @@ const HomeScreen = ({ navigation }) => {
               openUserProfile(item.userId, {
                 name: authorName,
                 avatar: authorAvatarURL,
-                role: roleLabel,
+                role: primaryRoleValue || 'Member',
+                subRoles: authorSubRoles,
               })
             }
             activeOpacity={0.85}
@@ -511,7 +529,12 @@ const HomeScreen = ({ navigation }) => {
             <Text style={styles.authorName}>
               {isShare ? `${authorName} shared ${originalAuthor}'s post` : authorName}
             </Text>
-            <Text style={styles.authorRole}>{roleLabel}</Text>
+            <SubRolePills
+              primaryRole={primaryRoleValue}
+              subRoles={authorSubRoles}
+              fallbackLabel={roleLabel}
+              style={styles.authorRole}
+            />
             {shareSubtitle ? (
               <Text style={styles.authorShareNote}>{shareSubtitle}</Text>
             ) : null}
@@ -1087,9 +1110,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   authorRole: {
-    fontSize: 13,
-    color: colors.textLight,
-    marginBottom: 2,
+    marginTop: 2,
+    marginBottom: 4,
+    alignSelf: 'flex-start',
   },
   authorShareNote: {
     fontSize: 12,
@@ -1145,9 +1168,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   sharedRole: {
-    fontSize: 12,
-    color: colors.textLight,
     marginTop: 2,
+    alignSelf: 'flex-start',
   },
   sharedContent: {
     fontSize: 14,

@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useContext, useMemo } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Switch, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Switch, ScrollView, ActivityIndicator, Alert, Linking } from 'react-native';
 import { WebView } from 'react-native-webview';
 import AuthContext from '../context/AuthContext';
 import { subscribeToCodeSite, saveCodeSite, buildInlineHtml } from '../utils/portfolioService';
@@ -38,6 +38,15 @@ const PortfolioBuilderScreen = () => {
   }, [user?.uid]);
 
   const composed = useMemo(() => buildInlineHtml({ title, html, css, js }), [title, html, css, js]);
+
+  const handlePreviewNavigation = useCallback((request) => {
+    const url = request?.url || '';
+    if (url.startsWith('mailto:') || url.startsWith('tel:')) {
+      Linking.openURL(url).catch(() => Alert.alert('Unable to open link', 'Install an email or phone app to continue.'));
+      return false;
+    }
+    return true;
+  }, []);
 
   const onSave = async () => {
     if (!user?.uid) return Alert.alert('Auth', 'Login required');
@@ -100,7 +109,12 @@ const PortfolioBuilderScreen = () => {
 
       <View style={styles.previewPane}>
         <Text style={styles.previewHeader}>Live Preview</Text>
-        <WebView originWhitelist={["*"]} source={{ html: composed }} style={{ flex: 1 }} />
+        <WebView
+          originWhitelist={["*"]}
+          source={{ html: composed }}
+          style={{ flex: 1 }}
+          onShouldStartLoadWithRequest={handlePreviewNavigation}
+        />
       </View>
     </View>
   );

@@ -17,6 +17,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
+import { formatRoleLabels } from '../utils/roleUtils';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -27,7 +28,7 @@ const CreatePostScreen = ({ navigation }) => {
   const [submitting, setSubmitting] = useState(false);
   const { user } = useAuth();
   const displayName = user?.fullName?.trim() || user?.email?.split('@')[0] || 'Guest';
-  const roleLabel = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Public';
+  const roleLabel = formatRoleLabels(user?.subRoles, user?.role || 'Public');
   const avatarSource = user?.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR;
 
   const handlePost = async () => {
@@ -60,6 +61,7 @@ const CreatePostScreen = ({ navigation }) => {
         userEmail: user.email,
         userName,
         role: user.role || null,
+        subRoles: Array.isArray(user.subRoles) ? user.subRoles : [],
         userPhotoURL: user.profileImageURL || null,
   type: 'post',
         likesCount: 0,

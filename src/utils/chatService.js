@@ -16,6 +16,7 @@ import {
 	setDoc,
 } from 'firebase/firestore';
 import { mergePrivacySettings } from '../constants/privacyDefaults';
+import { sanitizeSubRoles } from './roleUtils';
 
 const conversationsCollection = collection(db, 'conversations');
 const callSessionsCollection = collection(db, 'callSessions');
@@ -25,6 +26,7 @@ const buildParticipantSnapshot = (user = {}) => ({
 	name: user.fullName || user.name || user.email || 'Member',
 	avatar: user.profileImageURL || user.avatar || null,
 	role: user.role || 'Member',
+	subRoles: sanitizeSubRoles(user.subRoles || [], user.role || null),
 	presenceStatus: user.presenceStatus || 'offline',
 	lastActiveAt: user.lastActiveAt || null,
 	privacySettings: mergePrivacySettings(user.privacySettings || {}),

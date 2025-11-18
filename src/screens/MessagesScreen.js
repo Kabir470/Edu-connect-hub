@@ -16,6 +16,8 @@ import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToConversations, subscribeToUserProfile } from '../utils/chatService';
 import { mergePrivacySettings } from '../constants/privacyDefaults';
+import SubRolePills from '../components/SubRolePills';
+import { formatRoleLabels, sanitizeSubRoles } from '../utils/roleUtils';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -173,6 +175,10 @@ const MessagesScreen = ({ navigation }) => {
           name: finalName,
           avatar: override?.profileImageURL || baseProfile.avatar || null,
           role: override?.role || baseProfile.role || 'Member',
+          subRoles: sanitizeSubRoles(
+            override?.subRoles || baseProfile.subRoles || [],
+            override?.role || baseProfile.role
+          ),
           privacySettings,
           presenceStatus: derivedPresence,
           lastActiveAt,
@@ -195,8 +201,10 @@ const MessagesScreen = ({ navigation }) => {
       .sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
   }, [conversations, participantProfiles, searchQuery, user?.uid]);
 
-  const renderConversation = ({ item }) => (
-    <TouchableOpacity
+  const renderConversation = ({ item }) => {
+    const roleLabel = formatRoleLabels(item.otherProfile.subRoles, item.otherProfile.role);
+    return (
+      <TouchableOpacity
       style={styles.conversationCard}
       onPress={() =>
         navigation.navigate('Chat',
@@ -208,6 +216,8 @@ const MessagesScreen = ({ navigation }) => {
                 name: item.otherProfile.name,
                 avatar: item.otherProfile.avatar,
                 privacySettings: item.otherProfile.privacySettings,
+                role: item.otherProfile.role,
+                subRoles: item.otherProfile.subRoles,
               }
         )
       }
@@ -232,6 +242,14 @@ const MessagesScreen = ({ navigation }) => {
           <Text style={styles.name}>{item.otherProfile.name || 'AcademicConnect user'}</Text>
           <Text style={styles.time}>{formatRelativeTime(item.lastMessageAt)}</Text>
         </View>
+        {item.type !== 'group' && (
+          <SubRolePills
+            primaryRole={item.otherProfile.role}
+            subRoles={item.otherProfile.subRoles}
+            fallbackLabel={roleLabel}
+            style={styles.conversationRole}
+          />
+        )}
         {item.type !== 'group' && item.otherProfile.activityLabel && (
           <Text
             style={[
@@ -261,8 +279,9 @@ const MessagesScreen = ({ navigation }) => {
           )}
         </View>
       </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -417,6 +436,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginHorizontal: 15,
+  conversationRole: {
+    marginTop: 2,
+    alignSelf: 'flex-start',
+  },
     marginBottom: 10,
   },
   conversationsTitle: {

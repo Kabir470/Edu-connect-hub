@@ -12,6 +12,7 @@ import {
 import * as Crypto from 'expo-crypto';
 import { DEFAULT_PRIVACY_SETTINGS, mergePrivacySettings } from '../constants/privacyDefaults';
 import { normalizeUsername } from '../utils/usernameService';
+import { sanitizeSubRoles } from '../utils/roleUtils';
 
 const AUTH_CACHE_KEY = 'auth:user';
 
@@ -24,6 +25,7 @@ const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) =>
     uid: baseUid,
     email: baseEmail,
     role: profileDoc.role || fallbackUser?.role || 'user',
+    subRoles: sanitizeSubRoles(profileDoc.subRoles || fallbackUser?.subRoles || [], profileDoc.role || fallbackUser?.role || null),
     fullName: profileDoc.fullName || fallbackUser?.fullName || '',
     username: profileDoc.username || fallbackUser?.username || null,
     status: profileDoc.status || fallbackUser?.status || 'pending',
@@ -45,8 +47,9 @@ const isSameUserShape = (prev, next) => {
   if (prev === next) return true;
   if (!prev || !next) return false;
   const fieldsMatch = USER_FIELDS.every((field) => prev[field] === next[field]);
+  const rolesMatch = JSON.stringify(prev?.subRoles || []) === JSON.stringify(next?.subRoles || []);
   const privacyMatch = JSON.stringify(prev.privacySettings || DEFAULT_PRIVACY_SETTINGS) === JSON.stringify(next.privacySettings || DEFAULT_PRIVACY_SETTINGS);
-  return fieldsMatch && privacyMatch;
+  return fieldsMatch && rolesMatch && privacyMatch;
 };
 
 export const AuthProvider = ({ children }) => {
@@ -92,6 +95,7 @@ export const AuthProvider = ({ children }) => {
       email,
       fullName: fullName || '',
       role: role || 'user',
+      subRoles: [],
       address: address || '',
   nidLast4,
   nidHash: nidHash,

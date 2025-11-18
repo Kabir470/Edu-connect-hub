@@ -15,6 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import SubRolePills from '../components/SubRolePills';
+import { formatRoleLabels } from '../utils/roleUtils';
 import { db } from '../../firebase';
 import {
   doc,
@@ -164,6 +166,9 @@ const PostDetailScreen = ({ route }) => {
     return '';
   };
 
+  const postSubRoles = Array.isArray(postData?.subRoles) ? postData.subRoles : [];
+  const postRoleLabel = formatRoleLabels(postSubRoles, postData?.role || '');
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
@@ -179,7 +184,12 @@ const PostDetailScreen = ({ route }) => {
             />
             <View style={styles.authorInfo}>
               <Text style={styles.authorName}>{postData?.userName || postData?.userEmail || 'User'}</Text>
-              <Text style={styles.authorRole}>{postData?.role || ''}</Text>
+              <SubRolePills
+                primaryRole={postData?.role}
+                subRoles={postSubRoles}
+                fallbackLabel={postRoleLabel}
+                style={styles.authorRole}
+              />
               <Text style={styles.postTime}>{renderPostTime()}</Text>
             </View>
             <TouchableOpacity>
@@ -298,12 +308,12 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 2,
   },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 12,
-  },
+    authorRole: {
+      marginTop: 2,
+      marginBottom: 4,
+      alignSelf: 'flex-start',
+    },
+  
   authorInfo: {
     flex: 1,
   },
@@ -314,9 +324,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   authorRole: {
-    fontSize: 13,
-    color: colors.textLight,
-    marginBottom: 2,
+    marginTop: 2,
+    marginBottom: 4,
+    alignSelf: 'flex-start',
   },
   postTime: {
     fontSize: 12,

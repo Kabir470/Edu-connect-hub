@@ -30,6 +30,8 @@ import {
   where,
 } from 'firebase/firestore';
 import { FOLLOW_STATUS, subscribeToIncomingRequests } from '../utils/followService';
+import SubRolePills from '../components/SubRolePills';
+import { sanitizeSubRoles } from '../utils/roleUtils';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 const LANGUAGE_OPTIONS = ['English', 'Bangla', 'Spanish'];
@@ -37,7 +39,7 @@ const PREFERENCES_STORAGE_KEY = 'profile.preferences';
 
 const ProfileScreen = ({ navigation }) => {
   const { user, signOut } = useAuth();
-  const [profileData, setProfileData] = useState({});
+  const [profileData, setProfileData] = useState({ subRoles: [] });
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [followersPreview, setFollowersPreview] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
@@ -188,6 +190,7 @@ const ProfileScreen = ({ navigation }) => {
           name: d.fullName || 'Unnamed',
           email: d.email || user.email,
           role: (d.role || user.role || 'user').toUpperCase(),
+          subRoles: sanitizeSubRoles(d.subRoles || [], d.role || user.role),
           institution: d.address || '—',
           avatar: d.profileImageURL ? { uri: d.profileImageURL } : DEFAULT_AVATAR,
           bio: d.bio || 'No bio provided.',
@@ -376,12 +379,23 @@ const ProfileScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <Text style={styles.name}>{profileData?.name || 'Loading...'}</Text>
-          <Text style={styles.role}>{profileData?.role || ''}</Text>
+          <SubRolePills
+            primaryRole={profileData?.role}
+            subRoles={profileData?.subRoles}
+            fallbackLabel={profileData?.role}
+          />
           <Text style={styles.institution}>{profileData?.institution || ''}</Text>
           <Text style={styles.email}>{profileData?.email || ''}</Text>
           {profileData?.status === 'pending' && (
             <Text style={{ color: colors.warning, marginTop: 4 }}>Pending verification</Text>
           )}
+
+          <View style={styles.primaryActions}>
+            <TouchableOpacity style={styles.editButton} onPress={() => navigateTo('EditProfile')}>
+              <Ionicons name="create-outline" size={18} color={colors.white} />
+              <Text style={styles.editButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Stats */}
           <View style={styles.statsContainer}>
@@ -588,6 +602,27 @@ const styles = StyleSheet.create({
   email: {
     fontSize: 13,
     color: colors.mediumGray,
+  },
+  primaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingHorizontal: 24,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+  },
+  editButtonText: {
+    color: colors.white,
+    fontWeight: '600',
+    marginLeft: 6,
   },
   statsContainer: {
     flexDirection: 'row',

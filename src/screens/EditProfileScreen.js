@@ -18,6 +18,8 @@ import { db, storage } from '../../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { checkUsernameAvailable, normalizeUsername, validateUsername } from '../utils/usernameService';
+import SUB_ROLE_OPTIONS, { MAX_SUB_ROLES } from '../constants/subRoleOptions';
+import { sanitizeSubRoles, toggleSubRole, sentenceCase } from '../utils/roleUtils';
 
 const FALLBACK_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -34,11 +36,15 @@ const EditProfileScreen = () => {
     phone: '',
     location: '',
     profileImageURL: null,
+    subRoles: [],
   });
   const [usernameMessage, setUsernameMessage] = useState('Choose a unique handle so others can @mention you.');
   const [usernameTone, setUsernameTone] = useState('muted');
   const [checkingUsername, setCheckingUsername] = useState(false);
   const [initialUsername, setInitialUsername] = useState('');
+  const primaryRole = user?.role || 'user';
+  const primaryRoleLabel = sentenceCase(primaryRole || 'Member');
+  const secondaryRoleLabel = MAX_SUB_ROLES > 1 ? 'roles' : 'role';
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -48,6 +54,7 @@ const EditProfileScreen = () => {
         if (snap.exists()) {
           const data = snap.data();
           const normalizedUsername = data.username || '';
+          const sanitizedSecondary = sanitizeSubRoles(data.subRoles || [], primaryRole);
           setProfile((prev) => ({
             ...prev,
             fullName: data.fullName || '',
@@ -58,6 +65,7 @@ const EditProfileScreen = () => {
             phone: data.phone || '',
             location: data.location || '',
             profileImageURL: data.profileImageURL || null,
+            subRoles: sanitizedSecondary,
           }));
           setInitialUsername(normalizeUsername(normalizedUsername || ''));
         }
@@ -68,7 +76,7 @@ const EditProfileScreen = () => {
       }
     };
     loadProfile();
-  }, [user?.uid]);
+  }, [user?.uid, primaryRole]);
 
   const updateUsernameHelper = (message, tone = 'muted') => {
     setUsernameMessage(message);
@@ -128,6 +136,16 @@ const EditProfileScreen = () => {
     }
   };
 
+  const handleToggleRole = (roleId) => {
+    setProfile((prev) => {
+      const next = toggleSubRole(roleId, prev.subRoles, primaryRole);
+      if (next.length === prev.subRoles.length && !prev.subRoles.includes(roleId)) {
+        Alert.alert('Limit reached', `You can pick only ${MAX_SUB_ROLES} secondary ${secondaryRoleLabel}.`);
+      }
+      return { ...prev, subRoles: next };
+    });
+  };
+
   const handleSave = async () => {
     if (!user?.uid) return;
     try {
@@ -148,6 +166,7 @@ const EditProfileScreen = () => {
           return;
         }
       }
+      const sanitizedRoles = sanitizeSubRoles(profile.subRoles, primaryRole);
       await updateDoc(doc(db, 'users', user.uid), {
         fullName: profile.fullName.trim(),
         username: normalizedUsername,
@@ -158,6 +177,7 @@ const EditProfileScreen = () => {
         phone: profile.phone.trim(),
         location: profile.location.trim(),
         profileImageURL: profile.profileImageURL || null,
+        subRoles: sanitizedRoles,
         updatedAt: new Date().toISOString(),
       });
       await refreshUserProfile();
@@ -245,6 +265,43 @@ const EditProfileScreen = () => {
           />
         </View>
 
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Primary role</Text>
+          <View style={styles.fixedRolePill}>
+            <Text style={styles.fixedRoleText}>{primaryRoleLabel}</Text>
+          </View>
+          <Text style={styles.primaryRoleHint}>Selected during sign up and managed by the admin team.</Text>
+        </View>
+
+        <View style={styles.inputGroup}>
+          <View style={styles.rolesHeader}>
+            <Text style={styles.label}>Secondary role</Text>
+            <Text style={styles.roleCount}>{profile.subRoles.length}/{MAX_SUB_ROLES}</Text>
+          </View>
+          <Text style={styles.rolesHelper}>
+            {MAX_SUB_ROLES === 1
+              ? 'Pick one optional role to further describe what you do.'
+              : `Pick up to ${MAX_SUB_ROLES} optional roles to further describe what you do.`}
+          </Text>
+          <View style={styles.rolesGrid}>
+            {SUB_ROLE_OPTIONS.map((option) => {
+              const selected = profile.subRoles.includes(option.id);
+              return (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[styles.rolePill, selected && styles.rolePillSelected]}
+                  onPress={() => handleToggleRole(option.id)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.rolePillText, selected && styles.rolePillTextSelected]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
           <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
         </TouchableOpacity>
@@ -296,6 +353,62 @@ const styles = StyleSheet.create({
   },
   usernameHelperSuccess: {
     color: colors.success,
+  },
+  fixedRolePill: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  fixedRoleText: {
+    color: colors.white,
+    fontWeight: '600',
+  },
+  primaryRoleHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.textLight,
+  },
+  rolesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  roleCount: {
+    fontSize: 12,
+    color: colors.textLight,
+  },
+  rolesHelper: {
+    fontSize: 13,
+    color: colors.textLight,
+    marginBottom: 8,
+  },
+  rolesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  rolePill: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
+    backgroundColor: colors.white,
+  },
+  rolePillSelected: {
+    backgroundColor: colors.primary + '12',
+    borderColor: colors.primary,
+  },
+  rolePillText: {
+    color: colors.text,
+    fontWeight: '500',
+  },
+  rolePillTextSelected: {
+    color: colors.primary,
   },
   saveButton: {
     backgroundColor: colors.primary,

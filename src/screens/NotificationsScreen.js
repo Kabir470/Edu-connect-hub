@@ -26,6 +26,8 @@ import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../../firebase';
 import { approveFollowRequest, rejectFollowRequest } from '../utils/followService';
+import SubRolePills from '../components/SubRolePills';
+import { formatRoleLabels } from '../utils/roleUtils';
 
 const ICONS = {
   like: 'heart',
@@ -235,6 +237,7 @@ const NotificationsScreen = ({ navigation }) => {
 
   const renderNotificationItem = ({ item }) => {
     const actorName = item.actorName || 'Someone';
+    const actorRoleLabel = formatRoleLabels(item.actorSubRoles, item.actorRole || '');
     const bodyText = item.body || item.previewText || item.postSnippet || '';
     const avatarSource = item.actorPhotoURL ? { uri: item.actorPhotoURL } : DEFAULT_AVATAR;
     const isFollowRequest = item.type === 'follow-request';
@@ -279,6 +282,12 @@ const NotificationsScreen = ({ navigation }) => {
             <Text style={styles.notificationActor}>{actorName} </Text>
             {item.title || item.message || 'interacted with your post'}
           </Text>
+          <SubRolePills
+            primaryRole={item.actorRole}
+            subRoles={item.actorSubRoles}
+            fallbackLabel={actorRoleLabel}
+            style={styles.notificationRole}
+          />
           {bodyText ? (
             <Text style={styles.notificationPreview} numberOfLines={1}>
               {bodyText}
@@ -544,6 +553,10 @@ const styles = StyleSheet.create({
   },
   notificationActor: {
     fontWeight: '700',
+  },
+  notificationRole: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
   },
   notificationPreview: {
     fontSize: 13,

@@ -22,6 +22,8 @@ import {
   unfollowUser,
   FOLLOW_STATUS,
 } from '../utils/followService';
+import { sanitizeSubRoles } from '../utils/roleUtils';
+import SubRolePills from '../components/SubRolePills';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -57,6 +59,7 @@ const UserProfileScreen = ({ route, navigation }) => {
     name: fallback.name || 'AcademicConnect member',
     username: fallback.username || null,
     role: (fallback.role || 'Member').toUpperCase(),
+    subRoles: sanitizeSubRoles(fallback.subRoles || [], fallback.role),
     institution: fallback.institution || 'Not provided',
     bio: fallback.bio || 'No bio shared yet.',
     avatarURL: fallback.avatar || null,
@@ -90,6 +93,7 @@ const UserProfileScreen = ({ route, navigation }) => {
             name: data.fullName || prev.name,
             username: data.username || prev.username,
             role: (data.role || prev.role || 'Member').toUpperCase(),
+            subRoles: sanitizeSubRoles(data.subRoles || prev.subRoles || [], data.role || prev.role),
             institution: data.address || prev.institution,
             bio: data.bio || prev.bio,
             avatarURL: data.profileImageURL || prev.avatarURL,
@@ -263,7 +267,11 @@ const UserProfileScreen = ({ route, navigation }) => {
               {profile.username ? (
                 <Text style={styles.usernameHandle}>@{profile.username}</Text>
               ) : null}
-              <Text style={styles.role}>{profile.role || 'Member'}</Text>
+              <SubRolePills
+                primaryRole={profile.role}
+                subRoles={profile.subRoles}
+                fallbackLabel={profile.role}
+              />
               <Text style={styles.institution}>{profile.institution}</Text>
               {profile.status === 'approved' && (
                 <View style={styles.verifiedPill}>

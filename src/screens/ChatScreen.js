@@ -36,6 +36,8 @@ import {
 import { mergePrivacySettings } from '../constants/privacyDefaults';
 import { uploadChatAttachment } from '../utils/uploadService';
 import { Audio } from 'expo-av';
+import SubRolePills from '../components/SubRolePills';
+import { formatRoleLabels, sanitizeSubRoles } from '../utils/roleUtils';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -90,6 +92,8 @@ const ChatScreen = ({ route, navigation }) => {
     name: initialName = 'AcademicConnect user',
     avatar: initialAvatar = null,
     privacySettings: initialPrivacySettings = null,
+    role: initialRole = 'Member',
+    subRoles: initialSubRoles = [],
   } = route.params || {};
 
   const [conversationId, setConversationId] = useState(initialConversationId);
@@ -104,6 +108,8 @@ const ChatScreen = ({ route, navigation }) => {
     presenceStatus: 'offline',
     lastActiveAt: null,
     activityStatusHidden: false,
+    role: initialRole,
+    subRoles: sanitizeSubRoles(initialSubRoles, initialRole),
   });
   const [otherTyping, setOtherTyping] = useState(false);
   const [sending, setSending] = useState(false);
@@ -134,6 +140,8 @@ const ChatScreen = ({ route, navigation }) => {
           lastActiveAt: profile.lastActiveAt || prev.lastActiveAt || null,
           activityStatusHidden:
             profile.activityStatusHidden ?? prev.activityStatusHidden ?? false,
+          role: profile.role || prev.role || 'Member',
+          subRoles: sanitizeSubRoles(profile.subRoles || prev.subRoles || [], profile.role || prev.role),
         }));
       },
       (error) => console.warn('Failed to stream user profile', error)
@@ -182,7 +190,14 @@ const ChatScreen = ({ route, navigation }) => {
         if (data.type === 'group') {
           setIsGroup(true);
           setOtherTyping(false);
-          setTargetProfile((prev) => ({ ...prev, uid: null, name: data.name || 'Group', avatar: data.avatar || null }));
+          setTargetProfile((prev) => ({
+            ...prev,
+            uid: null,
+            name: data.name || 'Group',
+            avatar: data.avatar || null,
+            role: 'Group',
+            subRoles: [],
+          }));
           if ((data.unreadCounts?.[user?.uid] || 0) > 0) {
             markConversationRead(conversationId, user.uid).catch((error) => console.warn('Mark read failed', error));
           }
@@ -199,6 +214,8 @@ const ChatScreen = ({ route, navigation }) => {
               uid: otherId,
               name: details.name || prev.name,
               avatar: details.avatar || prev.avatar,
+              role: details.role || prev.role || 'Member',
+              subRoles: sanitizeSubRoles(details.subRoles || prev.subRoles || [], details.role || prev.role),
             }));
           }
           if ((data.unreadCounts?.[user?.uid] || 0) > 0) {
@@ -229,6 +246,10 @@ const ChatScreen = ({ route, navigation }) => {
     targetProfile?.privacySettings?.showActivityStatus !== false &&
     !targetProfile?.activityStatusHidden;
   const presenceStatus = targetProfile?.presenceStatus || 'offline';
+  const headerRoleLabel = useMemo(
+    () => formatRoleLabels(targetProfile?.subRoles, targetProfile?.role || 'Member'),
+    [targetProfile?.subRoles, targetProfile?.role]
+  );
   const headerStatusText = otherTyping
     ? 'Typing…'
     : !activityVisible
@@ -710,6 +731,14 @@ const ChatScreen = ({ route, navigation }) => {
           <Image source={getAvatarSource(targetProfile?.avatar)} style={styles.headerAvatar} />
           <View style={styles.headerInfo}>
             <Text style={styles.headerName}>{targetProfile?.name}</Text>
+            {!isGroup && (
+              <SubRolePills
+                primaryRole={targetProfile?.role}
+                subRoles={targetProfile?.subRoles}
+                fallbackLabel={headerRoleLabel}
+                style={styles.headerRoles}
+              />
+            )}
             <Text
               style={[
                 styles.headerStatus,
@@ -880,6 +909,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
     marginBottom: 2,
+  },
+  headerRoles: {
+    alignSelf: 'flex-start',
+    marginBottom: 4,
   },
   headerStatus: {
     fontSize: 12,

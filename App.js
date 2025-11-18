@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -43,6 +43,7 @@ import PendingVerificationScreen from './src/screens/PendingVerificationScreen';
 import WelcomeScreen from './src/screens/welcome';
 import { subscribeToConversations } from './src/utils/chatService';
 import { subscribeToUnseenNotifications } from './src/utils/notificationService';
+import { registerPushTokenForUser } from './src/utils/pushNotifications';
 import PortfolioScreen from './src/screens/PortfolioScreen';
 import CreateProjectScreen from './src/screens/CreateProjectScreen';
 import ProjectDetailScreen from './src/screens/ProjectDetailScreen';
@@ -321,6 +322,32 @@ function TabNavigator() {
   );
 }
 
+const PushRegistrar = () => {
+  const { user } = useAuth();
+  const registeredFor = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncToken = async () => {
+      if (!user?.uid || registeredFor.current === user.uid) return;
+      try {
+        await registerPushTokenForUser(user.uid);
+        if (!cancelled) {
+          registeredFor.current = user.uid;
+        }
+      } catch (error) {
+        console.warn('Push registration failed', error?.message || error);
+      }
+    };
+    syncToken();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  return null;
+};
+
 function PortfolioStack() {
   return (
     <Stack.Navigator>
@@ -387,6 +414,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <AuthProvider>
+        <PushRegistrar />
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
           <NavigationContainer>
             <RootNavigator />

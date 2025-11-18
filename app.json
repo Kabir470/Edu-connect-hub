@@ -35,6 +35,19 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "notification": {
+      "icon": "./assets/adaptive-icon.png",
+      "color": "#6C63FF"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#6C63FF"
+        }
+      ]
+    ],
     "extra": {
       "payment": {
         "apiBaseUrl": "",

@@ -36,6 +36,13 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "payment": {
+        "apiBaseUrl": "",
+        "currency": "BDT",
+        "demoMode": true,
+        "sandboxGatewayUrl": "https://sandbox.sslcommerz.com/EasyCheckOut/testbox/",
+        "mockDelayMs": 2000
+      },
       "eas": {
         "projectId": "026f34d3-debd-43cb-9a4e-51b2b73cf4ca"
       }

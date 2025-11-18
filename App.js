@@ -48,6 +48,7 @@ import CreateProjectScreen from './src/screens/CreateProjectScreen';
 import ProjectDetailScreen from './src/screens/ProjectDetailScreen';
 import PortfolioBuilderScreen from './src/screens/PortfolioBuilderScreen';
 import PortfolioPreviewScreen from './src/screens/PortfolioPreviewScreen';
+import AvailabilityManagerScreen from './src/screens/AvailabilityManagerScreen';
 
 
 const Tab = createBottomTabNavigator();
@@ -174,6 +175,7 @@ function ProfileStack() {
       <Stack.Screen name="HelpCenter" component={HelpCenterScreen} options={{ title: 'Help Center' }} />
       <Stack.Screen name="Terms" component={TermsScreen} options={{ title: 'Terms & Conditions' }} />
       <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About' }} />
+      <Stack.Screen name="AvailabilityManager" component={AvailabilityManagerScreen} options={{ title: 'Availability Manager' }} />
     </Stack.Navigator>
   );
 }

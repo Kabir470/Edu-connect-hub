@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,100 +11,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { subscribeToExperts } from '../utils/consultationService';
 
 const ExpertsScreen = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
   const categories = ['All', 'Computer Science', 'Medicine', 'Engineering', 'Business', 'Law'];
+  const [experts, setExperts] = useState([]);
 
-  const experts = [
-    {
-      id: '1',
-      name: 'Dr. Aliur Rahman',
-      title: 'AI & Machine Learning Expert',
-      avatar: require('../../assets/aliur-rahman.jpg'),
-      rating: 4.9,
-      reviews: 245,
-      hourlyRate: 150,
-      expertise: ['AI', 'Machine Learning', 'Deep Learning'],
-      experience: '15 years',
-      category: 'Computer Science',
-      available: true,
-    },
-    {
-      id: '2',
-      name: 'Prof. Shahriar Kabir',
-      title: 'Business Strategy Consultant',
-      avatar: require('../../assets/shahriar-kabir.jpg'),
-      rating: 4.8,
-      reviews: 189,
-      hourlyRate: 200,
-      expertise: ['Strategy', 'Marketing', 'Leadership'],
-      experience: '20 years',
-      category: 'Business',
-      available: true,
-    },
-    {
-      id: '3',
-      name: 'Dr. Koushik Hasan',
-      title: 'Medical Research Specialist',
-      avatar: require('../../assets/koushik-hasan.jpg'),
-      rating: 5.0,
-      reviews: 312,
-      hourlyRate: 180,
-      expertise: ['Clinical Research', 'Biostatistics', 'Epidemiology'],
-      experience: '18 years',
-      category: 'Medicine',
-      available: false,
-    },
-    {
-      id: '4',
-      name: 'Dr. Farhad Mahmud',
-      title: 'Mechanical Engineering Expert',
-      avatar: require('../../assets/farhad-mahmud.jpg'),
-      rating: 4.7,
-      reviews: 156,
-      hourlyRate: 120,
-      expertise: ['CAD', 'Robotics', 'Manufacturing'],
-      experience: '12 years',
-      category: 'Engineering',
-      available: true,
-    },
-    {
-      id: '5',
-      name: 'Prof. Refat',
-      title: 'International Law Consultant',
-      avatar: require('../../assets/refat.jpg'),
-      rating: 4.9,
-      reviews: 203,
-      hourlyRate: 250,
-      expertise: ['International Law', 'Human Rights', 'IP Law'],
-      experience: '22 years',
-      category: 'Law',
-      available: true,
-    },
-    {
-      id: '6',
-      name: 'Dr. Tanvir Ahmed',
-      title: 'Data Science & Analytics',
-      avatar: require('../../assets/tanvir-ahmed.jpg'),
-      rating: 4.8,
-      reviews: 178,
-      hourlyRate: 140,
-      expertise: ['Data Science', 'Python', 'Statistics'],
-      experience: '10 years',
-      category: 'Computer Science',
-      available: true,
-    },
-  ];
+  useEffect(() => {
+    const unsub = subscribeToExperts(setExperts, (e) => console.warn('experts sub err', e), {
+      category: selectedCategory,
+      search: searchQuery,
+    });
+    return () => unsub && unsub();
+  }, [selectedCategory, searchQuery]);
 
-  const filteredExperts = experts.filter(expert => {
-    const matchesSearch = expert.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         expert.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || expert.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  // Filtering already handled via subscribeToExperts (search + category).
+  // Avoid double filtering that caused undefined .toLowerCase() errors when fields missing.
+  const filteredExperts = experts;
 
   const renderExpert = ({ item }) => (
     <TouchableOpacity
@@ -113,8 +39,8 @@ const ExpertsScreen = ({ navigation }) => {
       activeOpacity={0.8}
     >
       <View style={styles.expertHeader}>
-        <Image source={item.avatar} style={styles.avatar} />
-        {item.available && (
+        <Image source={item.profileImageURL ? { uri: item.profileImageURL } : require('../../assets/shahriar-kabir.jpg')} style={styles.avatar} />
+        {item.consultAvailable && (
           <View style={styles.availableBadge}>
             <View style={styles.availableDot} />
             <Text style={styles.availableText}>Available</Text>
@@ -123,17 +49,17 @@ const ExpertsScreen = ({ navigation }) => {
       </View>
 
       <View style={styles.expertInfo}>
-        <Text style={styles.expertName}>{item.name}</Text>
-        <Text style={styles.expertTitle}>{item.title}</Text>
+        <Text style={styles.expertName}>{item.fullName || item.name || 'Expert'}</Text>
+        <Text style={styles.expertTitle}>{item.title || (item.expertise && item.expertise[0]) || 'Consultant'}</Text>
 
         <View style={styles.ratingContainer}>
           <Ionicons name="star" size={16} color={colors.warning} />
-          <Text style={styles.rating}>{item.rating}</Text>
-          <Text style={styles.reviews}>({item.reviews} reviews)</Text>
+          <Text style={styles.rating}>{Number(item.rating || 4.8).toFixed(1)}</Text>
+          <Text style={styles.reviews}>({item.reviews || 0} reviews)</Text>
         </View>
 
         <View style={styles.expertiseContainer}>
-          {item.expertise.slice(0, 3).map((skill, index) => (
+          {(item.expertise || []).slice(0, 3).map((skill, index) => (
             <View key={index} style={styles.expertiseTag}>
               <Text style={styles.expertiseText}>{skill}</Text>
             </View>
@@ -154,9 +80,10 @@ const ExpertsScreen = ({ navigation }) => {
         <TouchableOpacity 
           style={[
             styles.bookButton,
-            !item.available && styles.bookButtonDisabled
+            !item.consultAvailable && styles.bookButtonDisabled
           ]}
-          disabled={!item.available}
+          disabled={!item.consultAvailable}
+          onPress={() => navigation.navigate('ExpertDetail', { expert: item })}
         >
           <Ionicons 
             name="calendar-outline" 
@@ -164,7 +91,7 @@ const ExpertsScreen = ({ navigation }) => {
             color={colors.white} 
           />
           <Text style={styles.bookButtonText}>
-            {item.available ? 'Book Consultation' : 'Not Available'}
+            {item.consultAvailable ? 'Book Consultation' : 'Not Available'}
           </Text>
         </TouchableOpacity>
       </View>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -276,52 +276,66 @@ const ProfileScreen = ({ navigation }) => {
     };
   }, [user?.uid]);
 
-  const menuSections = [
-    {
-      title: 'Account',
-      items: [
-        { icon: 'person-outline', label: 'Portfolio', color: colors.primary, onPress: () => navigation.navigate('Portfolio', { screen: 'PortfolioPreview' }) },
-        { icon: 'document-text-outline', label: 'My CV/Resume', color: colors.secondary, onPress: () => navigateTo('Resume') },
-        { icon: 'school-outline', label: 'Education & Experience', color: colors.accent, onPress: () => navigateTo('EducationExperience') },
-        { icon: 'shield-checkmark-outline', label: 'Privacy & Security', color: colors.info, onPress: () => navigateTo('PrivacySecurity') },
-        { icon: 'people-outline', label: 'Followers & Requests', color: colors.primary, onPress: () => navigateTo('FollowRelations') },
-      ],
-    },
-    {
-      title: 'Content',
-      items: [
-        { icon: 'bookmark-outline', label: 'Saved Posts', color: colors.warning, onPress: () => navigateTo('SavedPosts') },
-        { icon: 'briefcase-outline', label: 'My Job Applications', color: colors.success, onPress: () => navigateTo('JobApplications') },
-        { icon: 'calendar-outline', label: 'Scheduled Consultations', color: colors.danger, onPress: () => navigateTo('ScheduledConsultations') },
-      ],
-    },
-    {
-      title: 'Settings',
-      items: [
-        {
-          icon: 'notifications-outline',
-          label: 'Notifications',
-          toggle: true,
-          value: notificationsEnabled,
-          onToggle: (value) => persistPreferences({ notificationsEnabled: value }),
-        },
-        {
-          icon: 'moon-outline',
-          label: 'Dark Mode',
-          toggle: true,
-          value: darkModeEnabled,
-          onToggle: (value) => persistPreferences({ darkModeEnabled: value }),
-        },
-        {
-          icon: 'language-outline',
-          label: 'Language',
-          color: colors.primary,
-          onPress: openLanguageModal,
-          valueText: language,
-        },
-      ],
-    },
-  ];
+  const menuSections = useMemo(() => {
+    const sections = [
+      {
+        title: 'Account',
+        items: [
+          { icon: 'person-outline', label: 'Portfolio', color: colors.primary, onPress: () => navigation.navigate('Portfolio', { screen: 'PortfolioPreview' }) },
+          { icon: 'document-text-outline', label: 'My CV/Resume', color: colors.secondary, onPress: () => navigateTo('Resume') },
+          { icon: 'school-outline', label: 'Education & Experience', color: colors.accent, onPress: () => navigateTo('EducationExperience') },
+          { icon: 'shield-checkmark-outline', label: 'Privacy & Security', color: colors.info, onPress: () => navigateTo('PrivacySecurity') },
+          { icon: 'people-outline', label: 'Followers & Requests', color: colors.primary, onPress: () => navigateTo('FollowRelations') },
+        ],
+      },
+      {
+        title: 'Content',
+        items: [
+          { icon: 'bookmark-outline', label: 'Saved Posts', color: colors.warning, onPress: () => navigateTo('SavedPosts') },
+          { icon: 'briefcase-outline', label: 'My Job Applications', color: colors.success, onPress: () => navigateTo('JobApplications') },
+          { icon: 'calendar-outline', label: 'Scheduled Consultations', color: colors.danger, onPress: () => navigateTo('ScheduledConsultations') },
+        ],
+      },
+      {
+        title: 'Settings',
+        items: [
+          {
+            icon: 'notifications-outline',
+            label: 'Notifications',
+            toggle: true,
+            value: notificationsEnabled,
+            onToggle: (value) => persistPreferences({ notificationsEnabled: value }),
+          },
+          {
+            icon: 'moon-outline',
+            label: 'Dark Mode',
+            toggle: true,
+            value: darkModeEnabled,
+            onToggle: (value) => persistPreferences({ darkModeEnabled: value }),
+          },
+          {
+            icon: 'language-outline',
+            label: 'Language',
+            color: colors.primary,
+            onPress: openLanguageModal,
+            valueText: language,
+          },
+        ],
+      },
+    ];
+
+    if (user?.role === 'expert') {
+      sections[1] = {
+        ...sections[1],
+        items: [
+          { icon: 'time-outline', label: 'Availability Manager', color: colors.info, onPress: () => navigateTo('AvailabilityManager') },
+          ...sections[1].items,
+        ],
+      };
+    }
+
+    return sections;
+  }, [user?.role, notificationsEnabled, darkModeEnabled, language]);
 
   const renderLanguageModal = () => (
     <Modal transparent visible={languageModalVisible} animationType="fade" onRequestClose={closeLanguageModal}>
@@ -402,6 +416,15 @@ const ProfileScreen = ({ navigation }) => {
               <Ionicons name="share-social-outline" size={20} color={colors.primary} />
               <Text style={styles.secondaryButtonText}>Share Profile</Text>
             </TouchableOpacity>
+            {user?.role === 'expert' && (
+              <TouchableOpacity
+                style={[styles.secondaryButton, styles.fullWidthButton]}
+                onPress={() => navigateTo('AvailabilityManager')}
+              >
+                <Ionicons name="time-outline" size={20} color={colors.primary} />
+                <Text style={styles.secondaryButtonText}>Manage Availability</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -603,6 +626,7 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: 20,
     marginTop: 10,
   },
@@ -633,6 +657,12 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     borderWidth: 1.5,
     borderColor: colors.primary,
+  },
+  fullWidthButton: {
+    flexBasis: '100%',
+    marginLeft: 0,
+    marginRight: 0,
+    marginTop: 12,
   },
   secondaryButtonText: {
     color: colors.primary,

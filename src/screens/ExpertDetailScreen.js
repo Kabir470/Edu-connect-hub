@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,56 +6,100 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import colors from '../constants/colors';
+import {
+  subscribeToExpertAvailabilities,
+  subscribeToExpertReviews,
+  requestConsultation,
+} from '../utils/consultationService';
+import { useAuth } from '../context/AuthContext';
+import { createSslCommerzSession, waitForSslPaymentConfirmation } from '../utils/paymentService';
 
 const ExpertDetailScreen = ({ route, navigation }) => {
   const { expert } = route.params;
+  const { user } = useAuth();
   const [selectedTimeSlot, setSelectedTimeSlot] = useState(null);
+  const [slots, setSlots] = useState([]);
+  const [booking, setBooking] = useState(false);
+  const [paymentStatusText, setPaymentStatusText] = useState('');
+  const [recentReviews, setRecentReviews] = useState([]);
+  const expertiseSummary = Array.isArray(expert.expertise) && expert.expertise.length
+    ? expert.expertise.join(', ')
+    : 'multiple disciplines';
 
-  const timeSlots = [
-    { id: '1', time: '9:00 AM', available: true },
-    { id: '2', time: '10:00 AM', available: true },
-    { id: '3', time: '11:00 AM', available: false },
-    { id: '4', time: '2:00 PM', available: true },
-    { id: '5', time: '3:00 PM', available: true },
-    { id: '6', time: '4:00 PM', available: false },
-  ];
+  useEffect(() => {
+    const unsubSlots = subscribeToExpertAvailabilities(
+      expert.id,
+      (list) => setSlots(list),
+      (e) => console.warn('avail err', e)
+    );
+    const unsubReviews = subscribeToExpertReviews(
+      expert.id,
+      (list) => setRecentReviews(list || []),
+      (err) => console.warn('review subscribe err', err)
+    );
+    return () => {
+      unsubSlots && unsubSlots();
+      unsubReviews && unsubReviews();
+    };
+  }, [expert?.id]);
 
-  const reviews = [
-    {
-      id: '1',
-      author: 'Shopnil Karmakar',
-      avatar: require('../../assets/shopnil-karmakar.jpg'),
-      rating: 5,
-      comment: 'Excellent consultation! Very knowledgeable and helpful.',
-      date: '2 days ago',
-    },
-    {
-      id: '2',
-      author: 'Mahim',
-      avatar: require('../../assets/mahim.jpg'),
-      rating: 5,
-      comment: 'Highly recommend! Great insights and practical advice.',
-      date: '1 week ago',
-    },
-    {
-      id: '3',
-      author: 'Mahadi',
-      avatar: require('../../assets/mahadi.jpg'),
-      rating: 4,
-      comment: 'Very professional and informative session.',
-      date: '2 weeks ago',
-    },
-  ];
+  const toReadable = (ts) => {
+    if (!ts) return '';
+    const d = ts?.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
+    return d.toLocaleString();
+  };
 
-  const handleBookConsultation = () => {
-    if (selectedTimeSlot) {
-      alert(`Booking confirmed for ${selectedTimeSlot.time}`);
-    } else {
-      alert('Please select a time slot');
+  const formatReviewDate = (ts) => {
+    if (!ts) return '';
+    if (typeof ts?.toDate === 'function') {
+      return ts.toDate().toLocaleDateString();
+    }
+    const d = ts?.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
+    return d.toLocaleDateString();
+  };
+
+  const handleBookConsultation = async () => {
+    if (!selectedTimeSlot) {
+      Alert.alert('Select a slot', 'Please choose a time before booking.');
+      return;
+    }
+    if (!user) {
+      Alert.alert('Login required', 'Sign in to confirm your consultation.');
+      return;
+    }
+    setBooking(true);
+    setPaymentStatusText('Redirecting to payment gateway...');
+    try {
+      const amountDue = Number(selectedTimeSlot.rate || expert.hourlyRate || expert.rate || 0);
+      const session = await createSslCommerzSession({ amount: amountDue, user, expert, slot: selectedTimeSlot });
+      await WebBrowser.openBrowserAsync(session.gatewayUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN });
+
+      setPaymentStatusText('Confirming payment with SSLCommerz...');
+      const confirmation = await waitForSslPaymentConfirmation({ sessionKey: session.sessionKey });
+      const paymentPayload = {
+        ...confirmation,
+        amount: confirmation.amount || amountDue,
+        sessionKey: confirmation.sessionKey || session.sessionKey,
+        transactionId: confirmation.transactionId || session.transactionId,
+      };
+
+      setPaymentStatusText('Submitting consultation request...');
+      await requestConsultation({ user, expert, slot: selectedTimeSlot, payment: paymentPayload });
+      setPaymentStatusText('');
+      Alert.alert('Booking requested', 'Payment received. Await expert confirmation.');
+      navigation.navigate('Profile', { screen: 'ScheduledConsultations' });
+    } catch (e) {
+      console.error('consult booking failed', e);
+      Alert.alert('Booking failed', e.message || 'Advance payment was not completed.');
+    } finally {
+      setBooking(false);
+      setPaymentStatusText('');
     }
   };
 
@@ -64,24 +108,24 @@ const ExpertDetailScreen = ({ route, navigation }) => {
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Expert Profile Header */}
         <View style={styles.header}>
-          <Image source={expert.avatar} style={styles.avatar} />
-          <Text style={styles.name}>{expert.name}</Text>
-          <Text style={styles.title}>{expert.title}</Text>
+          <Image source={expert.profileImageURL ? { uri: expert.profileImageURL } : require('../../assets/shahriar-kabir.jpg')} style={styles.avatar} />
+          <Text style={styles.name}>{expert.fullName || expert.name}</Text>
+          <Text style={styles.title}>{expert.title || (expert.expertise && expert.expertise[0]) || 'Consultant'}</Text>
           
           <View style={styles.ratingContainer}>
             <Ionicons name="star" size={20} color={colors.warning} />
-            <Text style={styles.rating}>{expert.rating}</Text>
-            <Text style={styles.reviews}>({expert.reviews} reviews)</Text>
+            <Text style={styles.rating}>{Number(expert.rating || 4.8).toFixed(1)}</Text>
+            <Text style={styles.reviews}>({expert.reviews || 0} reviews)</Text>
           </View>
 
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{expert.experience}</Text>
+              <Text style={styles.statValue}>{expert.experience || '—'}</Text>
               <Text style={styles.statLabel}>Experience</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>${expert.hourlyRate}/hr</Text>
+              <Text style={styles.statValue}>${expert.hourlyRate || 100}/hr</Text>
               <Text style={styles.statLabel}>Hourly Rate</Text>
             </View>
             <View style={styles.statDivider} />
@@ -91,7 +135,7 @@ const ExpertDetailScreen = ({ route, navigation }) => {
             </View>
           </View>
 
-          {expert.available && (
+          {expert.consultAvailable && (
             <View style={styles.availableBadge}>
               <View style={styles.availableDot} />
               <Text style={styles.availableText}>Available Now</Text>
@@ -103,7 +147,7 @@ const ExpertDetailScreen = ({ route, navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Expertise</Text>
           <View style={styles.expertiseContainer}>
-            {expert.expertise.map((skill, index) => (
+            {(expert.expertise || []).map((skill, index) => (
               <View key={index} style={styles.expertiseTag}>
                 <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
                 <Text style={styles.expertiseText}>{skill}</Text>
@@ -116,38 +160,51 @@ const ExpertDetailScreen = ({ route, navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <Text style={styles.aboutText}>
-            {expert.name} is a highly experienced professional with {expert.experience} of expertise in {expert.expertise.join(', ')}. 
+            {expert.name} is a highly experienced professional with {expert.experience} of expertise in {expertiseSummary}. 
             They have helped numerous students and professionals achieve their academic and career goals through personalized consultation sessions.
           </Text>
         </View>
 
         {/* Available Time Slots */}
-        {expert.available && (
+        {expert.consultAvailable && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Available Time Slots (Today)</Text>
+            <Text style={styles.sectionTitle}>Available Time Slots</Text>
             <View style={styles.timeSlotsContainer}>
-              {timeSlots.map((slot) => (
-                <TouchableOpacity
-                  key={slot.id}
-                  style={[
-                    styles.timeSlot,
-                    !slot.available && styles.timeSlotDisabled,
-                    selectedTimeSlot?.id === slot.id && styles.timeSlotSelected,
-                  ]}
-                  onPress={() => slot.available && setSelectedTimeSlot(slot)}
-                  disabled={!slot.available}
-                >
-                  <Text
+              {slots.map((slot) => {
+                const slotState = slot.status || (slot.booked ? 'booked' : 'open');
+                const disabled = slotState !== 'open';
+                const selected = selectedTimeSlot?.id === slot.id && !disabled;
+                return (
+                  <TouchableOpacity
+                    key={slot.id}
                     style={[
-                      styles.timeSlotText,
-                      !slot.available && styles.timeSlotTextDisabled,
-                      selectedTimeSlot?.id === slot.id && styles.timeSlotTextSelected,
+                      styles.timeSlot,
+                      disabled && styles.timeSlotDisabled,
+                      selected && styles.timeSlotSelected,
                     ]}
+                    onPress={() => !disabled && setSelectedTimeSlot(slot)}
+                    disabled={disabled}
                   >
-                    {slot.time}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.timeSlotText,
+                        disabled && styles.timeSlotTextDisabled,
+                        selected && styles.timeSlotTextSelected,
+                      ]}
+                    >
+                      {toReadable(slot.start)}
+                    </Text>
+                    {slotState !== 'open' && (
+                      <Text style={styles.slotBadge}>
+                        {slotState === 'pending' ? 'Awaiting approval' : slotState === 'booked' ? 'Booked' : slotState}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+              {slots.length === 0 && (
+                <Text style={{ color: colors.textLight }}>No published time slots.</Text>
+              )}
             </View>
           </View>
         )}
@@ -155,45 +212,60 @@ const ExpertDetailScreen = ({ route, navigation }) => {
         {/* Reviews */}
         <View style={styles.section}>
           <View style={styles.reviewsHeader}>
-            <Text style={styles.sectionTitle}>Reviews ({expert.reviews})</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
+            <Text style={styles.sectionTitle}>Reviews ({recentReviews.length || expert.reviews || 0})</Text>
+            {recentReviews.length > 0 && (
+              <TouchableOpacity onPress={() => Alert.alert('Coming soon', 'Full review list will be available in a future update.')}> 
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
           </View>
-          
-          {reviews.map((review) => (
-            <View key={review.id} style={styles.reviewCard}>
-              <View style={styles.reviewHeader}>
-                <Image source={review.avatar} style={styles.reviewAvatar} />
-                <View style={styles.reviewInfo}>
-                  <Text style={styles.reviewAuthor}>{review.author}</Text>
-                  <View style={styles.reviewRating}>
-                    {[...Array(review.rating)].map((_, i) => (
-                      <Ionicons key={i} name="star" size={14} color={colors.warning} />
-                    ))}
+
+          {recentReviews.length === 0 ? (
+            <Text style={styles.noReviewText}>No reviews yet. Be the first after your session!</Text>
+          ) : (
+            recentReviews.slice(0, 3).map((review) => (
+              <View key={review.id} style={styles.reviewCard}>
+                <View style={styles.reviewHeader}>
+                  <View style={styles.reviewAvatarPlaceholder}>
+                    <Ionicons name="person" size={18} color={colors.white} />
                   </View>
+                  <View style={styles.reviewInfo}>
+                    <Text style={styles.reviewAuthor}>{review.reviewerName || 'Client'}</Text>
+                    <View style={styles.reviewRating}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Ionicons
+                          key={`${review.id}-star-${star}`}
+                          name={star <= (review.rating || 0) ? 'star' : 'star-outline'}
+                          size={14}
+                          color={colors.warning}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                  <Text style={styles.reviewDate}>{formatReviewDate(review.reviewedAt)}</Text>
                 </View>
-                <Text style={styles.reviewDate}>{review.date}</Text>
+                {!!review.review && <Text style={styles.reviewComment}>{review.review}</Text>}
               </View>
-              <Text style={styles.reviewComment}>{review.comment}</Text>
-            </View>
-          ))}
+            ))
+          )}
         </View>
       </ScrollView>
 
       {/* Fixed Bottom Bar */}
-      {expert.available && (
+      {expert.consultAvailable && (
         <View style={styles.bottomBar}>
           <View style={styles.priceContainer}>
             <Text style={styles.priceLabel}>Consultation Fee</Text>
-            <Text style={styles.price}>${expert.hourlyRate}/hour</Text>
+            <Text style={styles.price}>${expert.hourlyRate || 100}/hour</Text>
+            {!!paymentStatusText && <Text style={styles.paymentStatusText}>{paymentStatusText}</Text>}
           </View>
           <TouchableOpacity 
             style={styles.bookButton}
             onPress={handleBookConsultation}
+            disabled={!selectedTimeSlot || booking}
           >
             <Ionicons name="calendar" size={20} color={colors.white} />
-            <Text style={styles.bookButtonText}>Book Now</Text>
+            <Text style={styles.bookButtonText}>{booking ? 'Booking...' : 'Book Now'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -341,6 +413,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     margin: 6,
+    minWidth: '45%',
   },
   timeSlotSelected: {
     backgroundColor: colors.primary,
@@ -360,6 +433,12 @@ const styles = StyleSheet.create({
   },
   timeSlotTextDisabled: {
     color: colors.mediumGray,
+  },
+  slotBadge: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textLight,
   },
   reviewsHeader: {
     flexDirection: 'row',
@@ -382,11 +461,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: 10,
   },
-  reviewAvatar: {
+  reviewAvatarPlaceholder: {
     width: 40,
     height: 40,
     borderRadius: 20,
     marginRight: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   reviewInfo: {
     flex: 1,
@@ -408,6 +490,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: colors.textLight,
+  },
+  noReviewText: {
+    color: colors.textLight,
+    fontStyle: 'italic',
   },
   bottomBar: {
     flexDirection: 'row',
@@ -435,6 +521,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: colors.primary,
+  },
+  paymentStatusText: {
+    fontSize: 12,
+    color: colors.info,
+    marginTop: 4,
   },
   bookButton: {
     flexDirection: 'row',

@@ -45,6 +45,26 @@ import { formatRoleLabels } from '../utils/roleUtils';
 const COMPOSE_CARD_HEIGHT = 110;
 const SHARE_BASE_URL = 'https://academicconnect.app/posts';
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
+const SUSPENSION_DURATION_MS = 100000;
+
+const toMillis = (value) => {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') {
+    return value.toDate().getTime();
+  }
+  if (typeof value === 'object' && typeof value.seconds === 'number') {
+    return value.seconds * 1000;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const describeAttributes = (attributes = []) => {
+  if (!attributes.length) return 'policy violation';
+  return attributes
+    .map((attr) => attr.replace(/_/g, ' ').toLowerCase())
+    .join(', ');
+};
 
 const formatRelativeTime = (ts) => {
   if (!ts) return '';
@@ -99,6 +119,10 @@ const HomeScreen = ({ navigation }) => {
   const [optionsPost, setOptionsPost] = useState(null);
   const [optionsVisible, setOptionsVisible] = useState(false);
   const [authorFollowState, setAuthorFollowState] = useState(null);
+  const [pendingPostCount, setPendingPostCount] = useState(0);
+  const [latestRejectedMeta, setLatestRejectedMeta] = useState(null);
+  const [suspensionDeadline, setSuspensionDeadline] = useState(null);
+  const [suspensionRemaining, setSuspensionRemaining] = useState(0);
   // User search states removed (migrated to FollowRelationsScreen)
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -125,14 +149,89 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [user, feedFilter]);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setPendingPostCount(0);
+      setLatestRejectedMeta(null);
+      setSuspensionDeadline(null);
+      setSuspensionRemaining(0);
+      return;
+    }
+    const authoredPosts = posts.filter((post) => post.userId === user.uid);
+    setPendingPostCount(
+      authoredPosts.filter((post) => post.status === 'pending' || post.status === 'needs_review').length
+    );
+    const latestRejected = [...authoredPosts]
+      .filter((post) => post.status === 'rejected')
+      .sort((a, b) => (toMillis(b?.moderation?.updatedAt) || 0) - (toMillis(a?.moderation?.updatedAt) || 0))[0];
+
+    if (latestRejected) {
+      const violationAt = toMillis(latestRejected?.moderation?.updatedAt) || Date.now();
+      setLatestRejectedMeta({
+        reasonText: describeAttributes(latestRejected?.moderation?.blockedAttributes || []),
+        violationAt,
+      });
+      const deadline = violationAt + SUSPENSION_DURATION_MS;
+      if (deadline > Date.now()) {
+        setSuspensionDeadline(deadline);
+      } else {
+        setSuspensionDeadline(null);
+        setSuspensionRemaining(0);
+      }
+    } else {
+      setLatestRejectedMeta(null);
+      setSuspensionDeadline(null);
+      setSuspensionRemaining(0);
+    }
+  }, [posts, user?.uid]);
+
+  useEffect(() => {
+    if (!suspensionDeadline) {
+      setSuspensionRemaining(0);
+      return;
+    }
+    const updateRemaining = () => {
+      const msLeft = suspensionDeadline - Date.now();
+      const secondsLeft = msLeft > 0 ? Math.ceil(msLeft / 1000) : 0;
+      setSuspensionRemaining(secondsLeft);
+      if (msLeft <= 0) {
+        setSuspensionDeadline(null);
+      }
+    };
+    updateRemaining();
+    const intervalId = setInterval(updateRemaining, 200);
+    return () => clearInterval(intervalId);
+  }, [suspensionDeadline]);
+
   // Username search handlers removed.
+  const isSuspended = suspensionRemaining > 0;
+
+  const handleOpenCreatePost = () => {
+    if (!user) return;
+    if (isSuspended) {
+      Alert.alert('Posting temporarily disabled', `Please wait ${suspensionRemaining}s before creating a new post.`);
+      return;
+    }
+    navigation.navigate('CreatePost');
+  };
 
   const filteredPosts = useMemo(() => {
     let base = posts.filter((p) => !hiddenPostIds.has(p.id));
+
     if (feedFilter === 'mine') {
       if (!user?.uid) return [];
       base = base.filter((post) => post.userId === user.uid);
     }
+
+    base = base.filter((post) => {
+      const status = post.status || 'approved';
+      if (status === 'approved') return true;
+      if (status === 'rejected') return false;
+      const isOwner = user?.uid === post.userId;
+      if (!isOwner) return false;
+      return feedFilter === 'mine' && (status === 'pending' || status === 'needs_review');
+    });
+
     return base;
   }, [feedFilter, posts, user?.uid, hiddenPostIds]);
 
@@ -433,6 +532,12 @@ const HomeScreen = ({ navigation }) => {
     const sharedSubRoles = Array.isArray(sharedSnapshot?.subRoles) ? sharedSnapshot.subRoles : [];
     const originalRoleLabel = formatRoleLabels(sharedSubRoles, sharedSnapshot?.role || '');
     const shareSubtitle = isShare ? `Shared from ${originalAuthor}` : null;
+    const showReviewBanner =
+      isCurrentUserPost && (item.status === 'pending' || item.status === 'needs_review');
+    const reviewBannerCopy =
+      item.status === 'pending'
+        ? 'Pending automated safety checks'
+        : 'Awaiting moderator review';
 
     const renderPrimaryContent = () => (
       <>
@@ -499,6 +604,22 @@ const HomeScreen = ({ navigation }) => {
         onPress={() => navigation.navigate('PostDetail', { post: item })}
         activeOpacity={0.9}
       >
+        {showReviewBanner && (
+          <View
+            style={[
+              styles.reviewBanner,
+              item.status === 'pending' ? styles.reviewBannerPending : styles.reviewBannerNeedsReview,
+            ]}
+          >
+            <Ionicons
+              name={item.status === 'pending' ? 'shield-checkmark' : 'time-outline'}
+              size={18}
+              color={colors.white}
+              style={styles.reviewBannerIcon}
+            />
+            <Text style={styles.reviewBannerText}>{reviewBannerCopy}</Text>
+          </View>
+        )}
         {/* Post Header */}
         <View style={styles.postHeader}>
           <TouchableOpacity
@@ -653,6 +774,38 @@ const HomeScreen = ({ navigation }) => {
 
   const renderHeader = () => {
     const ToggleWrapper = user ? Animated.View : View;
+    const alerts = [];
+    if (user && latestRejectedMeta && suspensionRemaining > 0) {
+      const reasonText = latestRejectedMeta.reasonText || 'policy violation';
+      alerts.push(
+        <View key="suspension" style={[styles.alertCard, styles.alertCardDanger]}>
+          <Ionicons name="alert-circle" size={22} color={colors.white} style={styles.alertIcon} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.alertTitle}>Posting suspended</Text>
+            <Text style={styles.alertMessage}>
+              Wait {suspensionRemaining}s before posting again. Reason: {reasonText}.
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (user && pendingPostCount > 0) {
+      alerts.push(
+        <View key="pending" style={[styles.alertCard, styles.alertCardInfo]}>
+          <Ionicons name="time-outline" size={22} color={colors.white} style={styles.alertIcon} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.alertTitle}>Awaiting review</Text>
+            <Text style={styles.alertMessage}>
+              {pendingPostCount === 1
+                ? '1 recent post is pending moderator review.'
+                : `${pendingPostCount} recent posts are pending moderator review.`}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.toggleHeader}>
         <ToggleWrapper
@@ -688,6 +841,8 @@ const HomeScreen = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
         </ToggleWrapper>
+
+        {alerts.length > 0 && <View style={styles.alertStack}>{alerts}</View>}
 
         {feedFilter === 'mine' && !user && (
           <Text style={styles.feedToggleTip}>Sign in to see posts you've shared.</Text>
@@ -853,16 +1008,28 @@ const HomeScreen = ({ navigation }) => {
             }}
           >
             <TouchableOpacity 
-              style={styles.createPostButton}
-              onPress={() => navigation.navigate('CreatePost')}
-              activeOpacity={0.9}
+              style={[
+                styles.createPostButton,
+                isSuspended && styles.createPostButtonDisabled,
+              ]}
+              onPress={handleOpenCreatePost}
+              activeOpacity={isSuspended ? 1 : 0.9}
+              disabled={isSuspended}
             >
               <Image
                 source={user.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR}
                 style={styles.smallAvatar}
               />
-              <Text style={styles.createPostText}>Share your thoughts...</Text>
-              <Ionicons name="images-outline" size={24} color={colors.primary} />
+              <Text style={[styles.createPostText, isSuspended && styles.createPostTextDisabled]}>
+                {isSuspended
+                  ? `Posting paused (${suspensionRemaining}s)`
+                  : 'Share your thoughts...'}
+              </Text>
+              <Ionicons
+                name="images-outline"
+                size={24}
+                color={isSuspended ? colors.mediumGray : colors.primary}
+              />
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
@@ -942,6 +1109,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  createPostButtonDisabled: {
+    backgroundColor: colors.lightGray,
+  },
   smallAvatar: {
     width: 40,
     height: 40,
@@ -952,6 +1122,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: colors.textLight,
+  },
+  createPostTextDisabled: {
+    color: colors.mediumGray,
   },
   feedToggle: {
     marginHorizontal: 15,
@@ -995,6 +1168,39 @@ const styles = StyleSheet.create({
     color: colors.mediumGray,
     fontSize: 13,
     textAlign: 'center',
+  },
+  alertStack: {
+    marginTop: 12,
+    marginHorizontal: 15,
+  },
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  alertCardDanger: {
+    backgroundColor: colors.danger,
+  },
+  alertCardWarning: {
+    backgroundColor: colors.warning,
+  },
+  alertCardInfo: {
+    backgroundColor: colors.info,
+  },
+  alertIcon: {
+    marginRight: 10,
+    marginTop: 2,
+  },
+  alertTitle: {
+    color: colors.white,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  alertMessage: {
+    color: colors.white,
+    fontSize: 13,
   },
   usernameSearchCard: {
     marginHorizontal: 15,
@@ -1088,6 +1294,27 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  reviewBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  reviewBannerPending: {
+    backgroundColor: colors.info,
+  },
+  reviewBannerNeedsReview: {
+    backgroundColor: colors.warning,
+  },
+  reviewBannerIcon: {
+    marginRight: 8,
+  },
+  reviewBannerText: {
+    color: colors.white,
+    fontWeight: '600',
   },
   postHeader: {
     flexDirection: 'row',

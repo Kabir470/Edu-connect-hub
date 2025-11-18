@@ -105,6 +105,8 @@ npm start
 - Press `i` for iOS
 - Scan QR code with Expo Go app
 
+> ⚠️ **Expo Go & push notifications**: Starting with Expo SDK 53, remote push notifications powered by `expo-notifications` no longer work inside Expo Go. To test or use push notifications you must run a development build (via `npx expo run:android` / `npx expo run:ios`) or an EAS build. See: https://docs.expo.dev/develop/development-builds/introduction/
+
 ## 🛠️ Technology Stack
 
 - **React Native** - Cross-platform mobile development

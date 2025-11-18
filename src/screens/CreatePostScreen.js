@@ -18,6 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
 import { formatRoleLabels } from '../utils/roleUtils';
+import { evaluatePostContent } from '../utils/contentFilter';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -32,12 +33,22 @@ const CreatePostScreen = ({ navigation }) => {
   const avatarSource = user?.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR;
 
   const handlePost = async () => {
-    if (!content.trim()) {
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
       Alert.alert('Error', 'Please write something to post');
       return;
     }
     if (!user) {
       Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+    const moderationResult = evaluatePostContent(trimmedContent);
+    if (!moderationResult.ok) {
+      const reasonText = moderationResult.reasons.map((r) => `• ${r.message}`).join('\n');
+      const blockedSummary = moderationResult.blockedTerms.length
+        ? `\nBlocked terms: ${moderationResult.blockedTerms.join(', ')}`
+        : '';
+      Alert.alert('Content blocked', `${reasonText}${blockedSummary}`);
       return;
     }
     try {
@@ -55,7 +66,7 @@ const CreatePostScreen = ({ navigation }) => {
 
   const userName = user?.fullName?.trim() || user.email?.split('@')[0] || 'User';
       await addDoc(collection(db, 'posts'), {
-        content: content.trim(),
+        content: trimmedContent,
         image: mediaUrl,
         userId: user.uid,
         userEmail: user.email,
@@ -69,6 +80,11 @@ const CreatePostScreen = ({ navigation }) => {
         sharesCount: 0,
         likedBy: [],
         createdAt: serverTimestamp(),
+        clientModeration: {
+          verdict: 'clean',
+          checkedAt: new Date().toISOString(),
+          blockedTerms: moderationResult.blockedTerms,
+        },
       });
       setContent('');
       setImage(null);

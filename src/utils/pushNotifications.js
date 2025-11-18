@@ -37,6 +37,12 @@ const requestPushPermissions = async () => {
 
 export const registerPushTokenForUser = async (userId) => {
   if (!userId) return null;
+  if (Constants.appOwnership === 'expo') {
+    console.warn(
+      'Expo Go cannot register remote push notifications in SDK 53+. Build a development client instead: https://docs.expo.dev/develop/development-builds/introduction/'
+    );
+    return null;
+  }
   if (!Constants.isDevice) {
     console.warn('Push notifications require a physical device.');
     return null;

@@ -10,6 +10,7 @@ import colors from './src/constants/colors';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
+import useAppUpdateCheck from './src/utils/useAppUpdateCheck';
 
 
 // Import Screens
@@ -408,7 +409,6 @@ function RootNavigator() {
   );
 }
 
-import useAppUpdateCheck from './src/utils/useAppUpdateCheck';
 
 // Main App Component
 export default function App() {

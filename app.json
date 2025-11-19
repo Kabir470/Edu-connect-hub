@@ -2,13 +2,13 @@
   "expo": {
     "name": "EdeX",
     "slug": "academic-connect",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "default",
-    "icon": "./assets/splash-icon.png",
+    "icon": "./assets/thumbnails/Thumbnail.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/thumbnails/Thumbnail.png",
       "resizeMode": "contain",
       "backgroundColor": "#6C63FF"
     },

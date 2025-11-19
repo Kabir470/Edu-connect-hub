@@ -438,7 +438,7 @@ const HomeScreen = ({ navigation }) => {
       Alert.alert('Error', 'Unable to update like right now.');
     }
   };
-
+//handle log
   const handleSharePost = async (postItem) => {
     if (!user) {
       Alert.alert('Sign in required', 'Log in to share posts.');
@@ -455,7 +455,7 @@ const HomeScreen = ({ navigation }) => {
         openShareComposer(postItem);
       }
     } catch (error) {
-      console.error('Share failed', error);
+      console.error('Share post failed', error);
       Alert.alert('Error', 'Unable to share the post right now.');
     }
   };

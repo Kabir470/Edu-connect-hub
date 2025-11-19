@@ -2,7 +2,7 @@
   "expo": {
     "name": "EdeX",
     "slug": "academic-connect",
-    "version": "2.2.0",
+    "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/thumbnails/Thumbnail.png",
     "userInterfaceStyle": "light",

@@ -21,6 +21,7 @@ const AuthContext = createContext(null);
 const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) => {
   const baseUid = firebaseUser?.uid || fallbackUser?.uid || profileDoc.uid;
   const baseEmail = firebaseUser?.email || profileDoc.email || fallbackUser?.email || '';
+  const hasPostSuspension = Object.prototype.hasOwnProperty.call(profileDoc, 'postSuspension');
   return {
     uid: baseUid,
     email: baseEmail,
@@ -38,6 +39,7 @@ const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) =>
     followers: typeof profileDoc.followers === 'number' ? profileDoc.followers : (fallbackUser?.followers ?? 0),
     following: typeof profileDoc.following === 'number' ? profileDoc.following : (fallbackUser?.following ?? 0),
     privacySettings: mergePrivacySettings(profileDoc.privacySettings || fallbackUser?.privacySettings),
+    postSuspension: hasPostSuspension ? profileDoc.postSuspension : fallbackUser?.postSuspension || null,
   };
 };
 
@@ -49,7 +51,8 @@ const isSameUserShape = (prev, next) => {
   const fieldsMatch = USER_FIELDS.every((field) => prev[field] === next[field]);
   const rolesMatch = JSON.stringify(prev?.subRoles || []) === JSON.stringify(next?.subRoles || []);
   const privacyMatch = JSON.stringify(prev.privacySettings || DEFAULT_PRIVACY_SETTINGS) === JSON.stringify(next.privacySettings || DEFAULT_PRIVACY_SETTINGS);
-  return fieldsMatch && rolesMatch && privacyMatch;
+  const suspensionMatch = JSON.stringify(prev?.postSuspension || null) === JSON.stringify(next?.postSuspension || null);
+  return fieldsMatch && rolesMatch && privacyMatch && suspensionMatch;
 };
 
 export const AuthProvider = ({ children }) => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -19,15 +19,88 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
 import { formatRoleLabels } from '../utils/roleUtils';
 import { evaluatePostContent } from '../utils/contentFilter';
+import { subscribeToAdminControls } from '../utils/adminService';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
+
+const toMillis = (value) => {
+  if (!value) return null;
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value?.toDate === 'function') return value.toDate().getTime();
+  if (typeof value === 'object' && typeof value.seconds === 'number') return value.seconds * 1000;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const formatRemainingSeconds = (seconds) => {
+  if (!seconds || seconds <= 0) return '0s';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+};
 
 const CreatePostScreen = ({ navigation }) => {
   const [content, setContent] = useState('');
   const [image, setImage] = useState(null); // local uri
   const [imageType, setImageType] = useState(null); // mime type
   const [submitting, setSubmitting] = useState(false);
+  const [feedControls, setFeedControls] = useState(null);
+  const [feedRemaining, setFeedRemaining] = useState(0);
+  const [manualRemaining, setManualRemaining] = useState(0);
   const { user } = useAuth();
+  const feedLockActive = feedRemaining > 0;
+  const manualSuspended = manualRemaining > 0;
+  const feedReason = feedControls?.feedLockReason || 'Temporarily disabled by admins.';
+  const manualReason = user?.postSuspension?.reason || 'Temporarily suspended by admin.';
+  const contentReady = content.trim().length > 0;
+  const isPostDisabled = !contentReady || submitting || feedLockActive || manualSuspended;
+  const postButtonText = feedLockActive
+    ? 'Feed paused'
+    : manualSuspended
+    ? 'Suspended'
+    : submitting
+    ? 'Posting...'
+    : 'Post';
+  useEffect(() => {
+    const unsubscribe = subscribeToAdminControls(setFeedControls);
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const deadline = feedControls?.feedLockedUntil ? toMillis(feedControls.feedLockedUntil) : null;
+    if (!deadline) {
+      setFeedRemaining(0);
+      return;
+    }
+    const updateRemaining = () => {
+      const diff = deadline - Date.now();
+      setFeedRemaining(diff > 0 ? Math.ceil(diff / 1000) : 0);
+    };
+    updateRemaining();
+    const intervalId = setInterval(updateRemaining, 1000);
+    return () => clearInterval(intervalId);
+  }, [feedControls?.feedLockedUntil]);
+
+  useEffect(() => {
+    const deadline = user?.postSuspension?.activeUntil ? toMillis(user.postSuspension.activeUntil) : null;
+    if (!deadline) {
+      setManualRemaining(0);
+      return;
+    }
+    const updateRemaining = () => {
+      const diff = deadline - Date.now();
+      setManualRemaining(diff > 0 ? Math.ceil(diff / 1000) : 0);
+    };
+    updateRemaining();
+    const intervalId = setInterval(updateRemaining, 1000);
+    return () => clearInterval(intervalId);
+  }, [user?.postSuspension?.activeUntil]);
   const displayName = user?.fullName?.trim() || user?.email?.split('@')[0] || 'Guest';
   const roleLabel = formatRoleLabels(user?.subRoles, user?.role || 'Public');
   const avatarSource = user?.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR;
@@ -40,6 +113,20 @@ const CreatePostScreen = ({ navigation }) => {
     }
     if (!user) {
       Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+    if (feedLockActive) {
+      Alert.alert(
+        'Feed currently paused',
+        `Admins paused posting for another ${formatRemainingSeconds(feedRemaining)}. Reason: ${feedReason}`
+      );
+      return;
+    }
+    if (manualSuspended) {
+      Alert.alert(
+        'Posting temporarily disabled',
+        `Please wait ${formatRemainingSeconds(manualRemaining)} before posting again. Reason: ${manualReason}`
+      );
       return;
     }
     const moderationResult = evaluatePostContent(trimmedContent);
@@ -138,6 +225,30 @@ const CreatePostScreen = ({ navigation }) => {
           </View>
         </View>
 
+        {feedLockActive && (
+          <View style={[styles.noticeCard, styles.noticeWarning]}>
+            <Ionicons name="lock-closed" size={20} color={colors.white} style={styles.noticeIcon} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.noticeTitle}>Feed paused by admins</Text>
+              <Text style={styles.noticeText}>
+                Posting resumes in {formatRemainingSeconds(feedRemaining)}. Reason: {feedReason}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {manualSuspended && (
+          <View style={[styles.noticeCard, styles.noticeDanger]}>
+            <Ionicons name="alert-circle" size={20} color={colors.white} style={styles.noticeIcon} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.noticeTitle}>Posting suspended</Text>
+              <Text style={styles.noticeText}>
+                Wait {formatRemainingSeconds(manualRemaining)} before creating a new post. Reason: {manualReason}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Content Input */}
         <TextInput
           style={styles.contentInput}
@@ -201,12 +312,12 @@ const CreatePostScreen = ({ navigation }) => {
         <TouchableOpacity 
           style={[
             styles.postButton, 
-            (!content.trim() || submitting) && styles.postButtonDisabled
+            isPostDisabled && styles.postButtonDisabled
           ]}
           onPress={handlePost}
-          disabled={!content.trim() || submitting}
+          disabled={isPostDisabled}
         >
-          <Text style={styles.postButtonText}>{submitting ? 'Posting...' : 'Post'}</Text>
+          <Text style={styles.postButtonText}>{postButtonText}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -234,6 +345,24 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  noticeCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    borderRadius: 12,
+    marginHorizontal: 15,
+    marginTop: 12,
+    gap: 10,
+  },
+  noticeWarning: {
+    backgroundColor: colors.warning,
+  },
+  noticeDanger: {
+    backgroundColor: colors.danger,
+  },
+  noticeIcon: { marginTop: 2 },
+  noticeTitle: { color: colors.white, fontWeight: '700' },
+  noticeText: { color: colors.white, fontSize: 13, marginTop: 2 },
   userName: {
     fontSize: 16,
     fontWeight: '600',

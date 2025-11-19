@@ -29,11 +29,18 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/026f34d3-debd-43cb-9a4e-51b2b73cf4ca"
     },
     "notification": {
       "icon": "./assets/adaptive-icon.png",
@@ -59,6 +66,9 @@
       "eas": {
         "projectId": "026f34d3-debd-43cb-9a4e-51b2b73cf4ca"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }

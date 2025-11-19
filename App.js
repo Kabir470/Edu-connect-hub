@@ -408,8 +408,11 @@ function RootNavigator() {
   );
 }
 
+import useAppUpdateCheck from './src/utils/useAppUpdateCheck';
+
 // Main App Component
 export default function App() {
+  useAppUpdateCheck();
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />

@@ -40,12 +40,28 @@ import {
 import { useAuth } from '../context/AuthContext';
 import SubRolePills from '../components/SubRolePills';
 import { formatRoleLabels } from '../utils/roleUtils';
+import { subscribeToAdminControls, deletePostAsAdmin, suspendUserPosting } from '../utils/adminService';
 // Removed user search from Home; feature moved to Followers & Requests screen.
 
 const COMPOSE_CARD_HEIGHT = 110;
 const SHARE_BASE_URL = 'https://academicconnect.app/posts';
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
-const SUSPENSION_DURATION_MS = 100000;
+const SUSPENSION_DURATION_MS = 10000; //suspension time [1*1000*60*60 = 1 hr] for calculation purposes
+const ADMIN_SUSPEND_PRESETS = [
+  { label: '1 hour', minutes: 60 },
+  { label: '24 hours', minutes: 1440 },
+  { label: '7 days', minutes: 10080 },
+  { label: 'Custom', minutes: null },
+];
+const ADMIN_DEFAULT_SUSPEND_MINUTES = ADMIN_SUSPEND_PRESETS[1].minutes;
+
+const createAdminSuspendState = () => ({
+  visible: false,
+  targetPost: null,
+  selectedMinutes: ADMIN_DEFAULT_SUSPEND_MINUTES,
+  customMinutes: '',
+  reason: '',
+});
 
 const toMillis = (value) => {
   if (!value) return null;
@@ -92,6 +108,16 @@ const formatRelativeTime = (ts) => {
   return date.toLocaleDateString();
 };
 
+const formatRemainingSeconds = (seconds) => {
+  if (!seconds || seconds <= 0) return '0s';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+};
+
 const buildShareLink = (postId) => `${SHARE_BASE_URL}/${postId}`;
 
 const buildSharedSnapshot = (postItem) => ({
@@ -123,6 +149,10 @@ const HomeScreen = ({ navigation }) => {
   const [latestRejectedMeta, setLatestRejectedMeta] = useState(null);
   const [suspensionDeadline, setSuspensionDeadline] = useState(null);
   const [suspensionRemaining, setSuspensionRemaining] = useState(0);
+  const [feedControls, setFeedControls] = useState(null);
+  const [feedRemaining, setFeedRemaining] = useState(0);
+  const [adminSuspendModal, setAdminSuspendModal] = useState(() => createAdminSuspendState());
+  const [adminSuspendLoading, setAdminSuspendLoading] = useState(false);
   // User search states removed (migrated to FollowRelationsScreen)
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -186,30 +216,96 @@ const HomeScreen = ({ navigation }) => {
   }, [posts, user?.uid]);
 
   useEffect(() => {
-    if (!suspensionDeadline) {
+    const unsubscribe = subscribeToAdminControls(setFeedControls);
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const deadline = feedControls?.feedLockedUntil ? toMillis(feedControls.feedLockedUntil) : null;
+    if (!deadline) {
+      setFeedRemaining(0);
+      return;
+    }
+    const updateRemaining = () => {
+      const diff = deadline - Date.now();
+      setFeedRemaining(diff > 0 ? Math.ceil(diff / 1000) : 0);
+    };
+    updateRemaining();
+    const intervalId = setInterval(updateRemaining, 1000);
+    return () => clearInterval(intervalId);
+  }, [feedControls?.feedLockedUntil]);
+
+  const manualSuspensionDeadline = useMemo(() => {
+    if (!user?.postSuspension?.activeUntil) return null;
+    return toMillis(user.postSuspension.activeUntil);
+  }, [user?.postSuspension?.activeUntil]);
+
+  const manualSuspensionReason = user?.postSuspension?.reason || 'Temporarily suspended by admin';
+
+  const activeSuspension = useMemo(() => {
+    const now = Date.now();
+    const autoDeadline = suspensionDeadline;
+    const manualDeadline = manualSuspensionDeadline;
+    const autoActive = autoDeadline && autoDeadline > now;
+    const manualActive = manualDeadline && manualDeadline > now;
+    if (manualActive && (!autoActive || manualDeadline >= autoDeadline)) {
+      return { deadline: manualDeadline, reason: manualSuspensionReason, source: 'manual' };
+    }
+    if (autoActive) {
+      return {
+        deadline: autoDeadline,
+        reason: latestRejectedMeta?.reasonText || 'policy violation',
+        source: 'auto',
+      };
+    }
+    return null;
+  }, [suspensionDeadline, manualSuspensionDeadline, manualSuspensionReason, latestRejectedMeta?.reasonText]);
+
+  useEffect(() => {
+    const deadline = activeSuspension?.deadline;
+    const source = activeSuspension?.source;
+    if (!deadline) {
       setSuspensionRemaining(0);
       return;
     }
     const updateRemaining = () => {
-      const msLeft = suspensionDeadline - Date.now();
+      const msLeft = deadline - Date.now();
       const secondsLeft = msLeft > 0 ? Math.ceil(msLeft / 1000) : 0;
       setSuspensionRemaining(secondsLeft);
-      if (msLeft <= 0) {
+      if (msLeft <= 0 && source === 'auto') {
         setSuspensionDeadline(null);
       }
     };
     updateRemaining();
     const intervalId = setInterval(updateRemaining, 200);
     return () => clearInterval(intervalId);
-  }, [suspensionDeadline]);
+  }, [activeSuspension?.deadline, activeSuspension?.source]);
 
   // Username search handlers removed.
+  const feedLockActive = feedRemaining > 0;
   const isSuspended = suspensionRemaining > 0;
+  const isPostingDisabled = feedLockActive || isSuspended;
+  const activeSuspensionReason = activeSuspension?.reason || latestRejectedMeta?.reasonText || 'policy violation';
+  const isAdmin = user?.role === 'admin';
+  const adminActorLabel = useMemo(() => user?.fullName?.trim() || user?.email || 'admin', [user?.fullName, user?.email]);
 
   const handleOpenCreatePost = () => {
     if (!user) return;
+    if (feedLockActive) {
+      const reason = feedControls?.feedLockReason || 'Temporarily disabled by admins.';
+      Alert.alert(
+        'Feed currently paused',
+        `Admins paused posting for another ${formatRemainingSeconds(feedRemaining)}. Reason: ${reason}`
+      );
+      return;
+    }
     if (isSuspended) {
-      Alert.alert('Posting temporarily disabled', `Please wait ${suspensionRemaining}s before creating a new post.`);
+      Alert.alert(
+        'Posting temporarily disabled',
+        `Please wait ${formatRemainingSeconds(suspensionRemaining)} before creating a new post. Reason: ${activeSuspensionReason}.`
+      );
       return;
     }
     navigation.navigate('CreatePost');
@@ -459,6 +555,87 @@ const HomeScreen = ({ navigation }) => {
   const handleReportPost = () => {
     Alert.alert('Reported', 'Thank you. Our team will review this post.');
     closeOptions();
+  };
+
+  const closeAdminSuspendModal = () => setAdminSuspendModal(createAdminSuspendState());
+
+  const openAdminSuspendModalForPost = (post) => {
+    if (!post) return;
+    setAdminSuspendModal({
+      visible: true,
+      targetPost: post,
+      selectedMinutes: ADMIN_DEFAULT_SUSPEND_MINUTES,
+      customMinutes: '',
+      reason: '',
+    });
+  };
+
+  const handleAdminSuspendSelect = (minutes) => {
+    setAdminSuspendModal((prev) => ({
+      ...prev,
+      selectedMinutes: minutes,
+      customMinutes: minutes === null ? prev.customMinutes : '',
+    }));
+  };
+
+  const handleAdminSuspendConfirm = async () => {
+    const targetUserId = adminSuspendModal.targetPost?.userId;
+    if (!targetUserId) {
+      closeAdminSuspendModal();
+      return;
+    }
+    const minutes =
+      adminSuspendModal.selectedMinutes === null
+        ? Number(adminSuspendModal.customMinutes)
+        : adminSuspendModal.selectedMinutes;
+    if (!minutes || Number.isNaN(minutes) || minutes <= 0) {
+      Alert.alert('Invalid duration', 'Enter a positive number of minutes.');
+      return;
+    }
+    setAdminSuspendLoading(true);
+    try {
+      await suspendUserPosting({
+        userId: targetUserId,
+        durationMs: minutes * 60 * 1000,
+        reason: adminSuspendModal.reason.trim(),
+        actor: adminActorLabel,
+      });
+      Alert.alert('User suspended', 'Posting has been disabled for the selected duration.');
+      closeAdminSuspendModal();
+    } catch (error) {
+      Alert.alert('Suspension failed', error?.message || 'Unable to suspend this user right now.');
+    } finally {
+      setAdminSuspendLoading(false);
+    }
+  };
+
+  const handleAdminSuspendStart = () => {
+    if (!optionsPost) return;
+    const post = optionsPost;
+    closeOptions();
+    openAdminSuspendModalForPost(post);
+  };
+
+  const handleAdminDeletePost = () => {
+    if (!optionsPost) return;
+    const targetPost = optionsPost;
+    closeOptions();
+    Alert.alert('Delete post', 'This removes the content for everyone. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deletePostAsAdmin(targetPost.id);
+            setPosts((prev) => prev.filter((p) => p.id !== targetPost.id));
+            Alert.alert('Deleted', 'Post removed from the feed.');
+          } catch (error) {
+            Alert.alert('Delete failed', error?.message || 'Unable to delete this post right now.');
+          }
+        },
+      },
+    ]);
   };
 
   const handleFollowAuthor = async () => {
@@ -775,15 +952,30 @@ const HomeScreen = ({ navigation }) => {
   const renderHeader = () => {
     const ToggleWrapper = user ? Animated.View : View;
     const alerts = [];
-    if (user && latestRejectedMeta && suspensionRemaining > 0) {
-      const reasonText = latestRejectedMeta.reasonText || 'policy violation';
+    if (feedLockActive) {
+      const reasonText = feedControls?.feedLockReason || 'Temporarily disabled for maintenance.';
+      alerts.push(
+        <View key="feedlock" style={[styles.alertCard, styles.alertCardWarning]}>
+          <Ionicons name="lock-closed" size={22} color={colors.white} style={styles.alertIcon} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.alertTitle}>Feed paused by admins</Text>
+            <Text style={styles.alertMessage}>
+              Posting resumes in {formatRemainingSeconds(feedRemaining)}. Reason: {reasonText}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (user && suspensionRemaining > 0) {
+      const reasonText = activeSuspensionReason || 'policy violation';
       alerts.push(
         <View key="suspension" style={[styles.alertCard, styles.alertCardDanger]}>
           <Ionicons name="alert-circle" size={22} color={colors.white} style={styles.alertIcon} />
           <View style={{ flex: 1 }}>
             <Text style={styles.alertTitle}>Posting suspended</Text>
             <Text style={styles.alertMessage}>
-              Wait {suspensionRemaining}s before posting again. Reason: {reasonText}.
+              Wait {formatRemainingSeconds(suspensionRemaining)} before posting again. Reason: {reasonText}.
             </Text>
           </View>
         </View>
@@ -983,6 +1175,20 @@ const HomeScreen = ({ navigation }) => {
                   </TouchableOpacity>
                 </>
               )}
+                {isAdmin && optionsPost ? (
+                  <>
+                    <View style={styles.adminDivider} />
+                    <Text style={styles.adminSectionLabel}>Admin actions</Text>
+                    <TouchableOpacity style={styles.optionRow} onPress={handleAdminSuspendStart} activeOpacity={0.85}>
+                      <Ionicons name="hand-left-outline" size={20} color={colors.warning} style={styles.optionIcon} />
+                      <Text style={styles.optionLabel}>Suspend author…</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionRow} onPress={handleAdminDeletePost} activeOpacity={0.85}>
+                      <Ionicons name="trash-bin" size={20} color={colors.danger} style={styles.optionIcon} />
+                      <Text style={[styles.optionLabel, { color: colors.danger }]}>Delete post for everyone</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
               <TouchableOpacity style={styles.optionRow} onPress={closeOptions} activeOpacity={0.85}>
                 <Ionicons name="close-circle-outline" size={20} color={colors.textLight} style={styles.optionIcon} />
                 <Text style={styles.optionLabel}>Cancel</Text>
@@ -1010,25 +1216,27 @@ const HomeScreen = ({ navigation }) => {
             <TouchableOpacity 
               style={[
                 styles.createPostButton,
-                isSuspended && styles.createPostButtonDisabled,
+                isPostingDisabled && styles.createPostButtonDisabled,
               ]}
               onPress={handleOpenCreatePost}
-              activeOpacity={isSuspended ? 1 : 0.9}
-              disabled={isSuspended}
+              activeOpacity={isPostingDisabled ? 1 : 0.9}
+              disabled={isPostingDisabled}
             >
               <Image
                 source={user.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR}
                 style={styles.smallAvatar}
               />
-              <Text style={[styles.createPostText, isSuspended && styles.createPostTextDisabled]}>
-                {isSuspended
-                  ? `Posting paused (${suspensionRemaining}s)`
+              <Text style={[styles.createPostText, isPostingDisabled && styles.createPostTextDisabled]}>
+                {feedLockActive
+                  ? `Feed paused (${formatRemainingSeconds(feedRemaining)})`
+                  : isSuspended
+                  ? `Posting paused (${formatRemainingSeconds(suspensionRemaining)})`
                   : 'Share your thoughts...'}
               </Text>
               <Ionicons
                 name="images-outline"
                 size={24}
-                color={isSuspended ? colors.mediumGray : colors.primary}
+                color={isPostingDisabled ? colors.mediumGray : colors.primary}
               />
             </TouchableOpacity>
           </Animated.View>
@@ -1086,6 +1294,17 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 0,
     zIndex: 30,
+  },
+  adminDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.medium,
+    marginVertical: 12,
+  },
+  adminSectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.danger,
+    marginBottom: 8,
   },
   toggleHeader: {
     backgroundColor: colors.background,

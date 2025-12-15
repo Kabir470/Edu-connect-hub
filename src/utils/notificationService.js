@@ -1,6 +1,5 @@
-import { addDoc, collection, serverTimestamp, onSnapshot, query, where, doc, getDoc } from 'firebase/firestore';
+import { addDoc, collection, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { sendExpoPushNotification } from './pushNotifications';
 import { sanitizeSubRoles } from './roleUtils';
 
 const buildActorName = (actor) => {
@@ -50,23 +49,7 @@ export const createNotificationEntry = async ({
       seen: false,
       createdAt: serverTimestamp(),
     });
-
-    const userDoc = await getDoc(doc(db, 'users', targetUserId));
-    const tokens = userDoc.exists() ? userDoc.data()?.expoPushTokens || [] : [];
-    if (tokens.length) {
-      const pushTitle = meta.title || actorName || 'AcademicConnect';
-      const pushBody = meta.previewText || meta.message || 'You have a new notification';
-      const dataPayload = {
-        notificationId: docRef.id,
-        type,
-        postId: post?.id || null,
-      };
-      await Promise.all(
-        tokens.map((token) =>
-          sendExpoPushNotification({ to: token, title: pushTitle, body: pushBody, data: dataPayload })
-        )
-      );
-    }
+    void docRef;
   } catch (error) {
     console.warn('Failed to create notification entry', error);
   }

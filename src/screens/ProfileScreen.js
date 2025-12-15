@@ -32,6 +32,7 @@ import {
 import { FOLLOW_STATUS, subscribeToIncomingRequests } from '../utils/followService';
 import SubRolePills from '../components/SubRolePills';
 import { sanitizeSubRoles } from '../utils/roleUtils';
+import { getVerificationGate } from '../utils/featureAccess';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 const LANGUAGE_OPTIONS = ['English', 'Bangla', 'Spanish'];
@@ -51,6 +52,10 @@ const ProfileScreen = ({ navigation }) => {
   const [savingPreference, setSavingPreference] = useState(false);
   const [requestActioningId, setRequestActioningId] = useState(null);
   const [preferencesSnapshot, setPreferencesSnapshot] = useState({});
+
+  const verificationGate = useMemo(() => getVerificationGate(user || {}), [user]);
+  const hideCompletionUI =
+    verificationGate?.completion?.isComplete && verificationGate?.verificationStatus === 'verified';
 
   const navigateTo = (route) => {
     if (!navigation || !route) return;
@@ -121,6 +126,37 @@ const ProfileScreen = ({ navigation }) => {
       });
     } catch (error) {
       console.warn('Failed to share profile', error);
+    }
+  };
+
+  const handleRequestVerification = async () => {
+    if (!user?.uid) return;
+    if (!verificationGate.completion.isComplete) {
+      const missingLabels = verificationGate.completion.missing.map((m) => m.label).join(', ');
+      Alert.alert('Profile incomplete', `Please complete: ${missingLabels}`);
+      navigation.navigate('EditProfile');
+      return;
+    }
+    if (verificationGate.verificationStatus === 'pending') {
+      navigation.navigate('Pending');
+      return;
+    }
+    if (verificationGate.verificationStatus === 'verified') {
+      Alert.alert('Verified', 'Your profile is already verified.');
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        verificationStatus: 'pending',
+        status: 'pending',
+        rejectionReason: null,
+        verificationRequestedAt: new Date().toISOString(),
+      });
+      Alert.alert('Request sent', 'Your verification request has been sent to the admin team.');
+      navigation.navigate('Pending');
+    } catch (error) {
+      console.warn('Failed to request verification', error);
+      Alert.alert('Error', 'Could not send verification request.');
     }
   };
 
@@ -386,9 +422,45 @@ const ProfileScreen = ({ navigation }) => {
           />
           <Text style={styles.institution}>{profileData?.institution || ''}</Text>
           <Text style={styles.email}>{profileData?.email || ''}</Text>
-          {profileData?.status === 'pending' && (
-            <Text style={{ color: colors.warning, marginTop: 4 }}>Pending verification</Text>
-          )}
+
+          <View style={styles.verificationCard}>
+            {hideCompletionUI ? null : (
+              <>
+                <View style={styles.verificationRow}>
+                  <Text style={styles.verificationLabel}>Profile completion</Text>
+                  <Text style={styles.verificationValue}>{verificationGate.completion.percent}%</Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${verificationGate.completion.percent}%` }]} />
+                </View>
+              </>
+            )}
+            <View style={[styles.verificationRow, { marginTop: 10 }]}>
+              <Text style={styles.verificationLabel}>Verification</Text>
+              <Text
+                style={[
+                  styles.verificationValue,
+                  verificationGate.verificationStatus === 'verified' && { color: colors.success },
+                  verificationGate.verificationStatus === 'pending' && { color: colors.warning },
+                  verificationGate.verificationStatus === 'rejected' && { color: colors.danger },
+                ]}
+              >
+                {verificationGate.verificationStatus.toUpperCase()}
+              </Text>
+            </View>
+
+            {verificationGate.verificationStatus === 'verified' ? null : verificationGate.verificationStatus === 'pending' ? (
+              <TouchableOpacity style={styles.secondaryAction} onPress={() => navigation.navigate('Pending')}>
+                <Ionicons name="time-outline" size={18} color={colors.primary} />
+                <Text style={styles.secondaryActionText}>View verification status</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.primaryAction} onPress={handleRequestVerification}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={colors.white} />
+                <Text style={styles.primaryActionText}>Request verification</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           <View style={styles.primaryActions}>
             <TouchableOpacity style={styles.editButton} onPress={() => navigateTo('EditProfile')}>
@@ -602,6 +674,74 @@ const styles = StyleSheet.create({
   email: {
     fontSize: 13,
     color: colors.mediumGray,
+  },
+  verificationCard: {
+    marginTop: 14,
+    width: '90%',
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 12,
+  },
+  verificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  verificationLabel: {
+    fontSize: 13,
+    color: colors.textLight,
+    fontWeight: '600',
+  },
+  verificationValue: {
+    fontSize: 13,
+    color: colors.text,
+    fontWeight: '800',
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.lightGray,
+    overflow: 'hidden',
+    marginTop: 10,
+  },
+  progressFill: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  primaryAction: {
+    marginTop: 12,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryActionText: {
+    color: colors.white,
+    fontWeight: '700',
+  },
+  secondaryAction: {
+    marginTop: 12,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  secondaryActionText: {
+    color: colors.primary,
+    fontWeight: '700',
   },
   primaryActions: {
     flexDirection: 'row',

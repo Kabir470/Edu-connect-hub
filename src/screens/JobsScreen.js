@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,108 +6,94 @@ import {
   FlatList,
   TouchableOpacity,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
+import { subscribeToJobs } from '../utils/jobService';
+
+const formatRelativeTime = (ts) => {
+  if (!ts) return '';
+  const date = ts?.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const diffMs = Date.now() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / (60 * 1000));
+  if (diffMinutes < 1) return 'just now';
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return date.toLocaleDateString();
+};
 
 const JobsScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   const categories = ['All', 'Research', 'Teaching', 'Industry', 'Internship'];
 
-  const jobs = [
-    {
-      id: '1',
-      title: 'Research Assistant',
-      company: 'MIT',
-      location: 'Cambridge, MA',
-      type: 'Full-time',
-      salary: '$45k - $55k',
-      posted: '2 days ago',
-      description: 'Looking for a motivated research assistant in AI/ML field.',
-      category: 'Research',
-    },
-    {
-      id: '2',
-      title: 'Associate Professor',
-      company: 'Stanford University',
-      location: 'Stanford, CA',
-      type: 'Full-time',
-      salary: '$95k - $120k',
-      posted: '5 days ago',
-      description: 'Tenure-track position in Computer Science department.',
-      category: 'Teaching',
-    },
-    {
-      id: '3',
-      title: 'Data Scientist',
-      company: 'Google Research',
-      location: 'Mountain View, CA',
-      type: 'Full-time',
-      salary: '$130k - $180k',
-      posted: '1 week ago',
-      description: 'Join our team working on cutting-edge ML projects.',
-      category: 'Industry',
-    },
-    {
-      id: '4',
-      title: 'PhD Research Intern',
-      company: 'Microsoft Research',
-      location: 'Redmond, WA',
-      type: 'Internship',
-      salary: '$7k/month',
-      posted: '3 days ago',
-      description: 'Summer internship opportunity for PhD students.',
-      category: 'Internship',
-    },
-    {
-      id: '5',
-      title: 'Postdoctoral Fellow',
-      company: 'Harvard Medical School',
-      location: 'Boston, MA',
-      type: 'Full-time',
-      salary: '$55k - $65k',
-      posted: '1 day ago',
-      description: 'Postdoc position in computational biology research.',
-      category: 'Research',
-    },
-    {
-      id: '6',
-      title: 'Adjunct Lecturer',
-      company: 'UC Berkeley',
-      location: 'Berkeley, CA',
-      type: 'Part-time',
-      salary: '$8k/course',
-      posted: '4 days ago',
-      description: 'Teaching position for Data Science courses.',
-      category: 'Teaching',
-    },
-  ];
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    const unsub = subscribeToJobs({
+      onData: (items) => {
+        setJobs(items || []);
+        setLoading(false);
+      },
+      onError: (error) => {
+        setLoadError(error);
+        setJobs([]);
+        setLoading(false);
+      },
+    });
+    return () => {
+      try { unsub && unsub(); } catch (_) {}
+    };
+  }, []);
 
-  const filteredJobs = jobs.filter(job => {
-    const matchesSearch = job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         job.company.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || job.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredJobs = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase();
+    return (jobs || []).filter((job) => {
+      const title = (job?.title || '').toLowerCase();
+      const company = (job?.company || '').toLowerCase();
+      const matchesSearch = !q || title.includes(q) || company.includes(q);
+
+      const jobCategory = job?.category || '';
+      const matchesCategory = selectedCategory === 'All' || jobCategory === selectedCategory;
+
+      return matchesSearch && matchesCategory;
+    });
+  }, [jobs, searchQuery, selectedCategory]);
 
   const renderJob = ({ item }) => (
     <TouchableOpacity
       style={styles.jobCard}
-      onPress={() => navigation.navigate('JobDetail', { job: item })}
+      onPress={() => navigation.navigate('JobDetail', { jobId: item.id })}
       activeOpacity={0.8}
     >
       <View style={styles.jobHeader}>
         <View style={styles.companyLogo}>
-          <Text style={styles.companyInitial}>{item.company[0]}</Text>
+          <Text style={styles.companyInitial}>{(item.company || 'C')[0]}</Text>
         </View>
         <View style={styles.jobInfo}>
           <Text style={styles.jobTitle}>{item.title}</Text>
           <Text style={styles.companyName}>{item.company}</Text>
+          {!!(item?.createdBy?.fullName || item?.createdBy?.username) && (
+            <Text style={styles.postedBy} numberOfLines={1}>
+              Posted by {item?.createdBy?.fullName || item?.createdBy?.username}
+            </Text>
+          )}
           <View style={styles.locationRow}>
             <Ionicons name="location-outline" size={14} color={colors.textLight} />
             <Text style={styles.location}>{item.location}</Text>
@@ -132,8 +118,11 @@ const JobsScreen = ({ navigation }) => {
       </Text>
 
       <View style={styles.jobFooter}>
-        <Text style={styles.posted}>{item.posted}</Text>
-        <TouchableOpacity style={styles.applyButton}>
+        <Text style={styles.posted}>{formatRelativeTime(item.createdAt) || ''}</Text>
+        <TouchableOpacity
+          style={styles.applyButton}
+          onPress={() => navigation.navigate('JobDetail', { jobId: item.id })}
+        >
           <Text style={styles.applyButtonText}>Apply Now</Text>
         </TouchableOpacity>
       </View>
@@ -208,6 +197,32 @@ const JobsScreen = ({ navigation }) => {
             )}
           </View>
         )}
+        ListEmptyComponent={() => {
+          if (loading) {
+            return (
+              <View style={styles.emptyState}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.emptyText}>Loading jobs…</Text>
+              </View>
+            );
+          }
+
+          if (loadError) {
+            return (
+              <View style={styles.emptyState}>
+                <Ionicons name="alert-circle-outline" size={36} color={colors.warning} />
+                <Text style={styles.emptyText}>Could not load jobs</Text>
+              </View>
+            );
+          }
+
+          return (
+            <View style={styles.emptyState}>
+              <Ionicons name="briefcase-outline" size={40} color={colors.mediumGray} />
+              <Text style={styles.emptyText}>No jobs posted yet</Text>
+            </View>
+          );
+        }}
       />
     </SafeAreaView>
   );
@@ -342,6 +357,11 @@ const styles = StyleSheet.create({
     color: colors.textLight,
     marginBottom: 4,
   },
+  postedBy: {
+    fontSize: 12,
+    color: colors.textLight,
+    marginBottom: 4,
+  },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -398,6 +418,15 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 14,
     fontWeight: '600',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    marginTop: 10,
+    color: colors.textLight,
   },
 });
 

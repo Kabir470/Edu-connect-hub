@@ -27,6 +27,7 @@ import {
   orderBy,
   query,
   doc,
+  where,
   updateDoc,
   arrayUnion,
   arrayRemove,
@@ -40,7 +41,9 @@ import {
 import { useAuth } from '../context/AuthContext';
 import SubRolePills from '../components/SubRolePills';
 import { formatRoleLabels } from '../utils/roleUtils';
+import { ensureRestrictedAccessOrAlert, getVerificationGate } from '../utils/featureAccess';
 import { subscribeToAdminControls, deletePostAsAdmin, suspendUserPosting } from '../utils/adminService';
+import POST_CATEGORIES, { DEFAULT_POST_CATEGORY } from '../constants/postCategories';
 // Removed user search from Home; feature moved to Followers & Requests screen.
 
 const COMPOSE_CARD_HEIGHT = 110;
@@ -129,14 +132,42 @@ const buildSharedSnapshot = (postItem) => ({
   subRoles: Array.isArray(postItem.subRoles) ? postItem.subRoles : [],
   content: postItem.content || '',
   image: postItem.image || null,
+  category: postItem.category || null,
+  visibility: postItem.visibility || null,
   createdAt: postItem.createdAt || null,
 });
+
+const resolvePostCategory = (postItem) => {
+  if (!postItem) return DEFAULT_POST_CATEGORY;
+  if (postItem.type === 'share') {
+    return postItem.category || postItem.sharedPostSnapshot?.category || DEFAULT_POST_CATEGORY;
+  }
+  return postItem.category || DEFAULT_POST_CATEGORY;
+};
+
+const resolvePostVisibility = (postItem) => {
+  if (!postItem) return 'public';
+  if (postItem.type === 'share') {
+    return postItem.visibility || postItem.sharedPostSnapshot?.visibility || 'public';
+  }
+  return postItem.visibility || 'public';
+};
+
+const resolveVisibilityOwnerId = (postItem) => {
+  if (!postItem) return null;
+  if (postItem.type === 'share') {
+    return postItem.sharedPostSnapshot?.userId || postItem.userId || null;
+  }
+  return postItem.userId || null;
+};
 
 const HomeScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [feedFilter, setFeedFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [followingIds, setFollowingIds] = useState(() => new Set());
   const [shareComposerVisible, setShareComposerVisible] = useState(false);
   const [shareComposerPost, setShareComposerPost] = useState(null);
   const [shareComposerNote, setShareComposerNote] = useState('');
@@ -172,6 +203,31 @@ const HomeScreen = ({ navigation }) => {
     );
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setFollowingIds(new Set());
+      return;
+    }
+    const followingQuery = query(
+      collection(db, 'followRelationships'),
+      where('followerId', '==', user.uid),
+      where('status', '==', FOLLOW_STATUS.ACCEPTED)
+    );
+    const unsubscribe = onSnapshot(
+      followingQuery,
+      (snap) => {
+        const ids = new Set();
+        snap.docs.forEach((d) => {
+          const data = d.data() || {};
+          if (data.targetUserId) ids.add(data.targetUserId);
+        });
+        setFollowingIds(ids);
+      },
+      () => setFollowingIds(new Set())
+    );
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!user && feedFilter === 'mine') {
@@ -286,13 +342,18 @@ const HomeScreen = ({ navigation }) => {
   // Username search handlers removed.
   const feedLockActive = feedRemaining > 0;
   const isSuspended = suspensionRemaining > 0;
-  const isPostingDisabled = feedLockActive || isSuspended;
+  const restrictedGate = useMemo(() => getVerificationGate(user || {}), [user]);
+  const isPostingDisabled = feedLockActive || isSuspended || !restrictedGate.canUseRestrictedFeatures;
   const activeSuspensionReason = activeSuspension?.reason || latestRejectedMeta?.reasonText || 'policy violation';
   const isAdmin = user?.role === 'admin';
   const adminActorLabel = useMemo(() => user?.fullName?.trim() || user?.email || 'admin', [user?.fullName, user?.email]);
 
   const handleOpenCreatePost = () => {
     if (!user) return;
+    if (!restrictedGate.canUseRestrictedFeatures) {
+      ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Posting locked' });
+      return;
+    }
     if (feedLockActive) {
       const reason = feedControls?.feedLockReason || 'Temporarily disabled by admins.';
       Alert.alert(
@@ -328,8 +389,22 @@ const HomeScreen = ({ navigation }) => {
       return feedFilter === 'mine' && (status === 'pending' || status === 'needs_review');
     });
 
+    if (categoryFilter !== 'all') {
+      base = base.filter((post) => resolvePostCategory(post) === categoryFilter);
+    }
+
+    base = base.filter((post) => {
+      const visibility = resolvePostVisibility(post);
+      if (visibility !== 'followers') return true;
+      if (isAdmin) return true;
+      const ownerId = resolveVisibilityOwnerId(post);
+      if (!ownerId) return false;
+      if (user?.uid && (user.uid === ownerId || user.uid === post.userId)) return true;
+      return !!(user?.uid && followingIds.has(ownerId));
+    });
+
     return base;
-  }, [feedFilter, posts, user?.uid, hiddenPostIds]);
+  }, [feedFilter, posts, user?.uid, hiddenPostIds, categoryFilter, followingIds, isAdmin]);
 
   useEffect(() => {
     if (!user?.uid || !optionsPost?.userId || user.uid === optionsPost.userId) {
@@ -354,6 +429,8 @@ const HomeScreen = ({ navigation }) => {
           subRoles: Array.isArray(user.subRoles) ? user.subRoles : [],
           userPhotoURL: user.profileImageURL || null,
           content: note,
+          category: resolvePostCategory(originalPost) || null,
+          visibility: resolvePostVisibility(originalPost) || 'public',
           sharedPostId: originalPost.id,
           sharedPostSnapshot: buildSharedSnapshot(originalPost),
           likesCount: 0,
@@ -824,19 +901,28 @@ const HomeScreen = ({ navigation }) => {
             }
             activeOpacity={0.85}
           >
-            <Text style={styles.authorName}>
-              {isShare ? `${authorName} shared ${originalAuthor}'s post` : authorName}
-            </Text>
+            <View style={styles.authorNameRow}>
+              <Text style={[styles.authorName, styles.authorNameText]} numberOfLines={1}>
+                {isShare ? `${authorName} shared ${originalAuthor}'s post` : authorName}
+              </Text>
+              <View style={styles.headerCategoryPill}>
+                <Text style={styles.headerCategoryText} numberOfLines={1}>
+                  {resolvePostCategory(item)}
+                </Text>
+              </View>
+            </View>
             <SubRolePills
               primaryRole={primaryRoleValue}
               subRoles={authorSubRoles}
               fallbackLabel={roleLabel}
               style={styles.authorRole}
             />
+            <View style={styles.postMetaRow}>
+              <Text style={styles.postTime}>{formatRelativeTime(item.createdAt)}</Text>
+            </View>
             {shareSubtitle ? (
               <Text style={styles.authorShareNote}>{shareSubtitle}</Text>
             ) : null}
-            <Text style={styles.postTime}>{formatRelativeTime(item.createdAt)}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => handleOpenOptions(item)} activeOpacity={0.7}>
             <Ionicons name="ellipsis-horizontal" size={24} color={colors.mediumGray} />
@@ -1033,6 +1119,34 @@ const HomeScreen = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
         </ToggleWrapper>
+
+        <View style={styles.categoryFilterRow}>
+          <Animated.ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryFilterPills}
+          >
+            <TouchableOpacity
+              style={[styles.categoryPill, categoryFilter === 'all' && styles.categoryPillActive]}
+              onPress={() => setCategoryFilter('all')}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.categoryPillText, categoryFilter === 'all' && styles.categoryPillTextActive]}>All</Text>
+            </TouchableOpacity>
+            {POST_CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat.key}
+                style={[styles.categoryPill, categoryFilter === cat.key && styles.categoryPillActive]}
+                onPress={() => setCategoryFilter(cat.key)}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.categoryPillText, categoryFilter === cat.key && styles.categoryPillTextActive]}>
+                  {cat.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </Animated.ScrollView>
+        </View>
 
         {alerts.length > 0 && <View style={styles.alertStack}>{alerts}</View>}
 
@@ -1312,6 +1426,64 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     zIndex: 20,
     elevation: 3,
+  },
+  categoryFilterRow: {
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  categoryFilterPills: {
+    paddingHorizontal: 12,
+    paddingRight: 20,
+  },
+  categoryPill: {
+    borderWidth: 1,
+    borderColor: colors.medium,
+    backgroundColor: colors.white,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginRight: 8,
+  },
+  categoryPillActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}1A`,
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textLight,
+  },
+  categoryPillTextActive: {
+    color: colors.primary,
+  },
+  postMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  authorNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  authorNameText: {
+    flex: 1,
+    marginRight: 10,
+  },
+  headerCategoryPill: {
+    maxWidth: 110,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}1A`,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    alignSelf: 'center',
+  },
+  headerCategoryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
   },
   createPostButton: {
     backgroundColor: colors.white,

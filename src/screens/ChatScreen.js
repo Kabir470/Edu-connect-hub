@@ -38,6 +38,7 @@ import { uploadChatAttachment } from '../utils/uploadService';
 import { Audio } from 'expo-av';
 import SubRolePills from '../components/SubRolePills';
 import { formatRoleLabels, sanitizeSubRoles } from '../utils/roleUtils';
+import { ensureRestrictedAccessOrAlert } from '../utils/featureAccess';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -444,6 +445,9 @@ const ChatScreen = ({ route, navigation }) => {
   };
 
   const handleSend = async () => {
+    if (!ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Messaging locked' })) {
+      return;
+    }
     if (!messagingAllowed) {
       Alert.alert('Messaging unavailable', 'This member has disabled new messages.');
       return;
@@ -496,6 +500,9 @@ const ChatScreen = ({ route, navigation }) => {
   };
 
   const handleStartCall = async (callType) => {
+    if (!ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Calling locked' })) {
+      return;
+    }
     if (!conversationId || !user?.uid || !targetProfile?.uid) {
       Alert.alert('Call unavailable', 'Conversation is not ready yet.');
       return;

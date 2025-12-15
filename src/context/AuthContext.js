@@ -1,18 +1,17 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth, db, storage } from '../../firebase';
+import { auth, db } from '../../firebase';
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut as firebaseSignOut 
 } from 'firebase/auth';
-import * as Crypto from 'expo-crypto';
 import { DEFAULT_PRIVACY_SETTINGS, mergePrivacySettings } from '../constants/privacyDefaults';
 import { normalizeUsername } from '../utils/usernameService';
 import { sanitizeSubRoles } from '../utils/roleUtils';
+import { deriveVerificationStatus } from '../utils/profileCompletion';
 
 const AUTH_CACHE_KEY = 'auth:user';
 
@@ -22,6 +21,7 @@ const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) =>
   const baseUid = firebaseUser?.uid || fallbackUser?.uid || profileDoc.uid;
   const baseEmail = firebaseUser?.email || profileDoc.email || fallbackUser?.email || '';
   const hasPostSuspension = Object.prototype.hasOwnProperty.call(profileDoc, 'postSuspension');
+  const verificationStatus = deriveVerificationStatus(profileDoc);
   return {
     uid: baseUid,
     email: baseEmail,
@@ -29,13 +29,17 @@ const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) =>
     subRoles: sanitizeSubRoles(profileDoc.subRoles || fallbackUser?.subRoles || [], profileDoc.role || fallbackUser?.role || null),
     fullName: profileDoc.fullName || fallbackUser?.fullName || '',
     username: profileDoc.username || fallbackUser?.username || null,
-    status: profileDoc.status || fallbackUser?.status || 'pending',
+    status: profileDoc.status || fallbackUser?.status || 'approved',
+    verificationStatus,
     profileImageURL: profileDoc.profileImageURL ?? fallbackUser?.profileImageURL ?? null,
     address: profileDoc.address || fallbackUser?.address || '',
     bio: profileDoc.bio || fallbackUser?.bio || '',
     phone: profileDoc.phone || fallbackUser?.phone || '',
     website: profileDoc.website || fallbackUser?.website || '',
     location: profileDoc.location || fallbackUser?.location || '',
+    nidLast4: profileDoc.nidLast4 ?? fallbackUser?.nidLast4 ?? null,
+    nidHash: profileDoc.nidHash ?? fallbackUser?.nidHash ?? null,
+    nidImageURL: profileDoc.nidImageURL ?? fallbackUser?.nidImageURL ?? null,
     followers: typeof profileDoc.followers === 'number' ? profileDoc.followers : (fallbackUser?.followers ?? 0),
     following: typeof profileDoc.following === 'number' ? profileDoc.following : (fallbackUser?.following ?? 0),
     privacySettings: mergePrivacySettings(profileDoc.privacySettings || fallbackUser?.privacySettings),
@@ -43,7 +47,7 @@ const buildSessionUser = (firebaseUser, profileDoc = {}, fallbackUser = null) =>
   };
 };
 
-const USER_FIELDS = ['uid', 'email', 'role', 'fullName', 'username', 'status', 'profileImageURL', 'address', 'bio', 'phone', 'website', 'location', 'followers', 'following'];
+const USER_FIELDS = ['uid', 'email', 'role', 'fullName', 'username', 'status', 'verificationStatus', 'profileImageURL', 'address', 'bio', 'phone', 'website', 'location', 'nidLast4', 'nidHash', 'nidImageURL', 'followers', 'following'];
 
 const isSameUserShape = (prev, next) => {
   if (prev === next) return true;
@@ -69,27 +73,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   // ✅ Sign Up
-  const signUp = async ({ email, password, fullName, role, address, nidNumber, profileImageUri, nidImageUri, username }) => {
+  const signUp = async ({ email, password, fullName, username }) => {
     // Create auth account
     const res = await createUserWithEmailAndPassword(auth, email, password);
     const uid = res.user.uid;
 
-    // Upload images if provided
-    const uploadIfNeeded = async (uri, path, contentType='image/jpeg') => {
-      if (!uri) return null;
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const r = ref(storage, path);
-      await uploadBytes(r, blob, { contentType });
-      return await getDownloadURL(r);
-    };
-
-    const profileImageURL = await uploadIfNeeded(profileImageUri, `users/${uid}/profile.jpg`);
-    const nidImageURL = await uploadIfNeeded(nidImageUri, `users/${uid}/nid-front.jpg`);
-
-  // Compute safe identifier parts
-  const nidLast4 = nidNumber ? nidNumber.slice(-4) : null;
-  const nidHash = nidNumber ? await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, nidNumber) : null;
+    // Minimal signup: additional verification info is collected later in profile completion.
 
     const normalizedUsername = username ? normalizeUsername(username) : null;
 
@@ -97,14 +86,19 @@ export const AuthProvider = ({ children }) => {
       uid,
       email,
       fullName: fullName || '',
-      role: role || 'user',
+      role: 'user',
       subRoles: [],
-      address: address || '',
-  nidLast4,
-  nidHash: nidHash,
-      profileImageURL: profileImageURL || null,
-      nidImageURL: nidImageURL || null,
-      status: 'pending',
+      address: '',
+      nidLast4: null,
+      nidHash: null,
+      profileImageURL: null,
+      nidImageURL: null,
+
+      status: 'approved',
+      verificationStatus: 'unverified',
+      verificationRequestedAt: null,
+      rejectionReason: null,
+      rejectedAt: null,
       createdAt: new Date().toISOString(),
       verifiedAt: null,
       username: normalizedUsername,

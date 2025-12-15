@@ -731,7 +731,7 @@ const AdminDashboardScreen = ({ navigation }) => {
               activeOpacity={0.85}
             >
               <Ionicons name="people-outline" size={18} color={colors.primary} />
-              <Text style={styles.manageUsersButtonText}>Review onboarding applications</Text>
+              <Text style={styles.manageUsersButtonText}>Review verification requests</Text>
             </TouchableOpacity>
           )}
         </View>

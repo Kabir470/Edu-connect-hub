@@ -7,10 +7,12 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../../firebase';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import AppTextInput from '../components/AppTextInput';
+import * as Crypto from 'expo-crypto';
+import { deriveVerificationStatus } from '../utils/profileCompletion';
 
 const PendingVerificationScreen = () => {
   const { user, signOut } = useAuth();
-  const [status, setStatus] = useState(user?.status || 'pending');
+  const [status, setStatus] = useState(deriveVerificationStatus(user) || 'unverified');
   const [rejectionReason, setRejectionReason] = useState('');
   const [resubmitting, setResubmitting] = useState(false);
   const [address, setAddress] = useState(user?.address || '');
@@ -24,7 +26,7 @@ const PendingVerificationScreen = () => {
     const unsub = onSnapshot(ref, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setStatus(data.status || 'pending');
+        setStatus(deriveVerificationStatus(data));
         setRejectionReason(data.rejectionReason || '');
         setAddress(data.address || '');
       }
@@ -40,9 +42,12 @@ const PendingVerificationScreen = () => {
     try {
       setResubmitting(true);
       // Only update minimal fields; full image re-upload flow could be added here
+      const nidHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, nidNumber.trim());
       await updateDoc(doc(db, 'users', user.uid), {
         address: address.trim(),
         nidLast4: nidNumber.slice(-4),
+        nidHash,
+        verificationStatus: 'pending',
         status: 'pending',
         rejectionReason: null,
         resubmittedAt: new Date().toISOString(),
@@ -60,7 +65,7 @@ const PendingVerificationScreen = () => {
       {status === 'rejected' ? (
         <View style={styles.card}>
           <Ionicons name="close-circle-outline" size={42} color={colors.danger} />
-          <Text style={styles.title}>Application rejected</Text>
+          <Text style={styles.title}>Verification rejected</Text>
           <Text style={styles.desc}>
             {rejectionReason ? rejectionReason : 'Your application was not approved. You may sign out and try again later.'}
           </Text>
@@ -84,10 +89,11 @@ const PendingVerificationScreen = () => {
       ) : (
         <View style={styles.card}>
           <Ionicons name="shield-checkmark-outline" size={42} color={colors.primary} />
-          <Text style={styles.title}>Verification in progress</Text>
+          <Text style={styles.title}>{status === 'pending' ? 'Verification in progress' : 'Not verified yet'}</Text>
           <Text style={styles.desc}>
-            Thanks for submitting your details. An admin will review your application soon.
-            You’ll be able to access the app once approved.
+            {status === 'pending'
+              ? 'Thanks for submitting your details. An admin will review your verification request soon.'
+              : 'Complete your profile and request verification from your Profile screen to unlock full access.'}
           </Text>
           <TouchableOpacity style={styles.button} onPress={signOut}>
             <Text style={styles.buttonText}>Sign out</Text>

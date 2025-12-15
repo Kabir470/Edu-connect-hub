@@ -20,6 +20,13 @@ import { useAuth } from '../context/AuthContext';
 import { formatRoleLabels } from '../utils/roleUtils';
 import { evaluatePostContent } from '../utils/contentFilter';
 import { subscribeToAdminControls } from '../utils/adminService';
+import POST_CATEGORIES, { DEFAULT_POST_CATEGORY } from '../constants/postCategories';
+import { ensureRestrictedAccessOrAlert } from '../utils/featureAccess';
+
+const POST_VISIBILITY = {
+  PUBLIC: 'public',
+  FOLLOWERS: 'followers',
+};
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -47,6 +54,8 @@ const CreatePostScreen = ({ navigation }) => {
   const [content, setContent] = useState('');
   const [image, setImage] = useState(null); // local uri
   const [imageType, setImageType] = useState(null); // mime type
+  const [category, setCategory] = useState(DEFAULT_POST_CATEGORY);
+  const [visibility, setVisibility] = useState(POST_VISIBILITY.PUBLIC);
   const [submitting, setSubmitting] = useState(false);
   const [feedControls, setFeedControls] = useState(null);
   const [feedRemaining, setFeedRemaining] = useState(0);
@@ -104,6 +113,22 @@ const CreatePostScreen = ({ navigation }) => {
   const displayName = user?.fullName?.trim() || user?.email?.split('@')[0] || 'Guest';
   const roleLabel = formatRoleLabels(user?.subRoles, user?.role || 'Public');
   const avatarSource = user?.profileImageURL ? { uri: user.profileImageURL } : DEFAULT_AVATAR;
+  const visibilityLabel = visibility === POST_VISIBILITY.FOLLOWERS ? 'Followers only' : 'Public';
+  const visibilityIcon = visibility === POST_VISIBILITY.FOLLOWERS ? 'people-outline' : 'globe-outline';
+
+  const handlePickVisibility = () => {
+    Alert.alert('Post visibility', 'Who can see this post?', [
+      {
+        text: 'Public',
+        onPress: () => setVisibility(POST_VISIBILITY.PUBLIC),
+      },
+      {
+        text: 'Followers only',
+        onPress: () => setVisibility(POST_VISIBILITY.FOLLOWERS),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
 
   const handlePost = async () => {
     const trimmedContent = content.trim();
@@ -113,6 +138,9 @@ const CreatePostScreen = ({ navigation }) => {
     }
     if (!user) {
       Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+    if (!ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Posting locked' })) {
       return;
     }
     if (feedLockActive) {
@@ -155,6 +183,8 @@ const CreatePostScreen = ({ navigation }) => {
       await addDoc(collection(db, 'posts'), {
         content: trimmedContent,
         image: mediaUrl,
+        category: category || DEFAULT_POST_CATEGORY,
+        visibility: visibility || POST_VISIBILITY.PUBLIC,
         userId: user.uid,
         userEmail: user.email,
         userName,
@@ -176,6 +206,8 @@ const CreatePostScreen = ({ navigation }) => {
       setContent('');
       setImage(null);
       setImageType(null);
+      setCategory(DEFAULT_POST_CATEGORY);
+      setVisibility(POST_VISIBILITY.PUBLIC);
       Alert.alert('Success', 'Post published successfully!', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
@@ -217,9 +249,9 @@ const CreatePostScreen = ({ navigation }) => {
           />
           <View style={styles.userDetails}>
             <Text style={styles.userName}>{displayName}</Text>
-            <TouchableOpacity style={styles.visibilityButton}>
-              <Ionicons name="globe-outline" size={16} color={colors.textLight} />
-              <Text style={styles.visibilityText}>{roleLabel}</Text>
+            <TouchableOpacity style={styles.visibilityButton} onPress={handlePickVisibility} activeOpacity={0.85}>
+              <Ionicons name={visibilityIcon} size={16} color={colors.textLight} />
+              <Text style={styles.visibilityText}>{`${visibilityLabel} • ${roleLabel}`}</Text>
               <Ionicons name="chevron-down" size={16} color={colors.textLight} />
             </TouchableOpacity>
           </View>
@@ -248,6 +280,27 @@ const CreatePostScreen = ({ navigation }) => {
             </View>
           </View>
         )}
+
+        <View style={styles.categorySection}>
+          <Text style={styles.categoryLabel}>Category</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPills}>
+            {POST_CATEGORIES.map((item) => {
+              const selected = (category || DEFAULT_POST_CATEGORY) === item.key;
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[styles.categoryPill, selected && styles.categoryPillActive]}
+                  onPress={() => setCategory(item.key)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.categoryPillText, selected && styles.categoryPillTextActive]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
 
         {/* Content Input */}
         <TextInput
@@ -328,6 +381,40 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.white,
+  },
+  categorySection: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  categoryLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  categoryPills: {
+    paddingRight: 8,
+  },
+  categoryPill: {
+    borderWidth: 1,
+    borderColor: colors.medium,
+    backgroundColor: colors.white,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginRight: 8,
+  },
+  categoryPillActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}1A`,
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textLight,
+  },
+  categoryPillTextActive: {
+    color: colors.primary,
   },
   userInfo: {
     flexDirection: 'row',

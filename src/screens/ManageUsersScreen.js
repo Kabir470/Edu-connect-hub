@@ -15,23 +15,39 @@ const ManageUsersScreen = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, 'users'), where('status', '==', 'pending'));
-    const unsub = onSnapshot(q, (snap) => {
-      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setPending(items);
+    const q1 = query(collection(db, 'users'), where('verificationStatus', '==', 'pending'));
+    const q2 = query(collection(db, 'users'), where('status', '==', 'pending'));
+
+    const upsert = (snap) => {
+      const incoming = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setPending((prev) => {
+        const map = new Map((prev || []).map((u) => [u.id, u]));
+        for (const item of incoming) map.set(item.id, item);
+        return Array.from(map.values());
+      });
       setLoading(false);
-    }, (e) => {
+    };
+
+    const onErr = (e) => {
       console.error('Pending users subscribe error', e);
       setLoading(false);
-    });
-    return () => unsub();
+    };
+
+    const unsub1 = onSnapshot(q1, upsert, onErr);
+    const unsub2 = onSnapshot(q2, upsert, onErr);
+    return () => {
+      try { unsub1 && unsub1(); } catch (_) {}
+      try { unsub2 && unsub2(); } catch (_) {}
+    };
   }, []);
 
   const onApprove = async (item) => {
     try {
       await updateDoc(doc(db, 'users', item.id), {
+        verificationStatus: 'verified',
         status: 'approved',
         verifiedAt: serverTimestamp(),
+        rejectionReason: null,
       });
       Alert.alert('Approved', `${item.fullName || item.email} has been approved.`);
     } catch (e) {
@@ -55,6 +71,7 @@ const ManageUsersScreen = () => {
     try {
       setSubmitting(true);
       await updateDoc(doc(db, 'users', rejectingFor.id), {
+        verificationStatus: 'rejected',
         status: 'rejected',
         rejectionReason: reason,
         rejectedAt: serverTimestamp(),

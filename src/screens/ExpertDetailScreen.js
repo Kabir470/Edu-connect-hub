@@ -19,6 +19,7 @@ import {
 } from '../utils/consultationService';
 import { useAuth } from '../context/AuthContext';
 import { createSslCommerzSession, waitForSslPaymentConfirmation } from '../utils/paymentService';
+import { ensureRestrictedAccessOrAlert } from '../utils/featureAccess';
 
 const ExpertDetailScreen = ({ route, navigation }) => {
   const { expert } = route.params;
@@ -71,6 +72,9 @@ const ExpertDetailScreen = ({ route, navigation }) => {
     }
     if (!user) {
       Alert.alert('Login required', 'Sign in to confirm your consultation.');
+      return;
+    }
+    if (!ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Consultations locked' })) {
       return;
     }
     setBooking(true);

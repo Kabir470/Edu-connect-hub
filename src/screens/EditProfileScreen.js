@@ -20,6 +20,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { checkUsernameAvailable, normalizeUsername, validateUsername } from '../utils/usernameService';
 import SUB_ROLE_OPTIONS, { MAX_SUB_ROLES } from '../constants/subRoleOptions';
 import { sanitizeSubRoles, toggleSubRole, sentenceCase } from '../utils/roleUtils';
+import * as Crypto from 'expo-crypto';
 
 const FALLBACK_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -31,13 +32,15 @@ const EditProfileScreen = () => {
     fullName: '',
     username: '',
     bio: '',
-    institution: '',
+    address: '',
     website: '',
     phone: '',
     location: '',
     profileImageURL: null,
+    nidImageURL: null,
     subRoles: [],
   });
+  const [nidNumber, setNidNumber] = useState('');
   const [usernameMessage, setUsernameMessage] = useState('Choose a unique handle so others can @mention you.');
   const [usernameTone, setUsernameTone] = useState('muted');
   const [checkingUsername, setCheckingUsername] = useState(false);
@@ -60,11 +63,12 @@ const EditProfileScreen = () => {
             fullName: data.fullName || '',
             username: normalizedUsername,
             bio: data.bio || '',
-            institution: data.address || '',
+            address: data.address || '',
             website: data.website || '',
             phone: data.phone || '',
             location: data.location || '',
             profileImageURL: data.profileImageURL || null,
+            nidImageURL: data.nidImageURL || null,
             subRoles: sanitizedSecondary,
           }));
           setInitialUsername(normalizeUsername(normalizedUsername || ''));
@@ -136,6 +140,29 @@ const EditProfileScreen = () => {
     }
   };
 
+  const handleChangeNidPhoto = async () => {
+    if (!user?.uid) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission needed', 'Enable photo permissions to upload your NID image.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      const fileRef = ref(storage, `users/${user.uid}/nid-front-${Date.now()}.jpg`);
+      await uploadBytes(fileRef, blob, { contentType: asset.mimeType || 'image/jpeg' });
+      const downloadURL = await getDownloadURL(fileRef);
+      setProfile((prev) => ({ ...prev, nidImageURL: downloadURL }));
+    } catch (error) {
+      console.error('NID upload failed', error);
+      Alert.alert('Error', 'Unable to upload your NID image right now.');
+    }
+  };
+
   const handleToggleRole = (roleId) => {
     setProfile((prev) => {
       const next = toggleSubRole(roleId, prev.subRoles, primaryRole);
@@ -167,16 +194,23 @@ const EditProfileScreen = () => {
         }
       }
       const sanitizedRoles = sanitizeSubRoles(profile.subRoles, primaryRole);
+      const trimmedNid = nidNumber.trim();
+      const nextNidHash = trimmedNid
+        ? await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, trimmedNid)
+        : null;
+      const nextNidLast4 = trimmedNid ? trimmedNid.slice(-4) : null;
       await updateDoc(doc(db, 'users', user.uid), {
         fullName: profile.fullName.trim(),
         username: normalizedUsername,
         usernameLower: normalizedUsername,
         bio: profile.bio.trim(),
-        address: profile.institution.trim(),
+        address: profile.address.trim(),
         website: profile.website.trim(),
         phone: profile.phone.trim(),
         location: profile.location.trim(),
         profileImageURL: profile.profileImageURL || null,
+        nidImageURL: profile.nidImageURL || null,
+        ...(trimmedNid ? { nidHash: nextNidHash, nidLast4: nextNidLast4 } : {}),
         subRoles: sanitizedRoles,
         updatedAt: new Date().toISOString(),
       });
@@ -218,7 +252,7 @@ const EditProfileScreen = () => {
         {[
           { label: 'Full Name', key: 'fullName', placeholder: 'Your full name' },
           { label: 'Username', key: 'username', placeholder: 'unique_handle', autoCapitalize: 'none', onBlur: handleUsernameBlur },
-          { label: 'Institution / Workplace', key: 'institution', placeholder: 'Where you study or work' },
+          { label: 'Address', key: 'address', placeholder: 'House, Road, City' },
           { label: 'Location', key: 'location', placeholder: 'City, Country' },
           { label: 'Website / Portfolio', key: 'website', placeholder: 'https://example.com' },
           { label: 'Phone', key: 'phone', placeholder: '+1 555 0100' },
@@ -263,6 +297,33 @@ const EditProfileScreen = () => {
             value={profile.bio}
             onChangeText={(text) => setProfile((prev) => ({ ...prev, bio: text }))}
           />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>NID Number</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter your NID number"
+            placeholderTextColor={colors.textLight}
+            value={nidNumber}
+            keyboardType="number-pad"
+            onChangeText={setNidNumber}
+          />
+          <Text style={styles.primaryRoleHint}>For privacy, we store only a hash and last 4 digits.</Text>
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>NID Photo (front)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Image
+              source={profile.nidImageURL ? { uri: profile.nidImageURL } : FALLBACK_AVATAR}
+              style={{ width: 88, height: 60, borderRadius: 10 }}
+            />
+            <TouchableOpacity style={styles.changePhotoButton} onPress={handleChangeNidPhoto}>
+              <Ionicons name="image" size={20} color={colors.white} />
+              <Text style={styles.changePhotoText}>Upload NID</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.inputGroup}>

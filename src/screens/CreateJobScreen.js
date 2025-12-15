@@ -7,12 +7,17 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../constants/colors';
+import { useAuth } from '../context/AuthContext';
+import { JOB_CATEGORIES, createJob } from '../utils/jobService';
+import { ensureRestrictedAccessOrAlert } from '../utils/featureAccess';
 
 const CreateJobScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const [jobTitle, setJobTitle] = useState('');
   const [company, setCompany] = useState('');
   const [location, setLocation] = useState('');
@@ -20,16 +25,58 @@ const CreateJobScreen = ({ navigation }) => {
   const [salary, setSalary] = useState('');
   const [description, setDescription] = useState('');
   const [requirements, setRequirements] = useState('');
+  const [category, setCategory] = useState(JOB_CATEGORIES[0]);
+  const [submitting, setSubmitting] = useState(false);
 
   const jobTypes = ['Full-time', 'Part-time', 'Contract', 'Internship'];
 
-  const handlePostJob = () => {
-    if (jobTitle.trim() && company.trim() && description.trim()) {
-      Alert.alert('Success', 'Job posted successfully!', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
-    } else {
+  const handlePostJob = async () => {
+    if (!user?.uid) {
+      Alert.alert('Sign in required', 'Please sign in to post a job.');
+      return;
+    }
+
+    if (!ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Job posting locked' })) {
+      return;
+    }
+
+    if (!(['expert', 'teacher', 'admin'].includes(user?.role))) {
+      Alert.alert('Not allowed', 'Your account cannot post jobs.');
+      return;
+    }
+
+    if (!jobTitle.trim() || !company.trim() || !location.trim() || !description.trim()) {
       Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await createJob({
+        title: jobTitle,
+        company,
+        location,
+        type: jobType,
+        salary,
+        description,
+        requirements,
+        category,
+        createdBy: {
+          uid: user.uid,
+          role: user.role || 'user',
+          fullName: user.fullName || null,
+          username: user.username || null,
+        },
+        contactEmail: user.email || null,
+      });
+
+      Alert.alert('Success', 'Job posted successfully!', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
+    } catch (e) {
+      Alert.alert('Error', e?.message || 'Could not post job');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -79,6 +126,32 @@ const CreateJobScreen = ({ navigation }) => {
               onChangeText={setLocation}
               placeholderTextColor={colors.textLight}
             />
+          </View>
+
+          {/* Category */}
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Category *</Text>
+            <View style={styles.jobTypeContainer}>
+              {JOB_CATEGORIES.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[
+                    styles.jobTypeButton,
+                    category === c && styles.jobTypeButtonActive,
+                  ]}
+                  onPress={() => setCategory(c)}
+                >
+                  <Text
+                    style={[
+                      styles.jobTypeText,
+                      category === c && styles.jobTypeTextActive,
+                    ]}
+                  >
+                    {c}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           {/* Job Type */}
@@ -185,19 +258,24 @@ const CreateJobScreen = ({ navigation }) => {
         <TouchableOpacity 
           style={styles.cancelButton}
           onPress={() => navigation.goBack()}
+          disabled={submitting}
         >
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[
             styles.postButton,
-            (!jobTitle.trim() || !company.trim() || !description.trim()) && styles.postButtonDisabled
+            (submitting || !jobTitle.trim() || !company.trim() || !location.trim() || !description.trim()) && styles.postButtonDisabled
           ]}
           onPress={handlePostJob}
-          disabled={!jobTitle.trim() || !company.trim() || !description.trim()}
+          disabled={submitting || !jobTitle.trim() || !company.trim() || !location.trim() || !description.trim()}
         >
-          <Ionicons name="checkmark-circle" size={20} color={colors.white} />
-          <Text style={styles.postButtonText}>Post Job</Text>
+          {submitting ? (
+            <ActivityIndicator size="small" color={colors.white} />
+          ) : (
+            <Ionicons name="checkmark-circle" size={20} color={colors.white} />
+          )}
+          <Text style={styles.postButtonText}>{submitting ? 'Posting…' : 'Post Job'}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

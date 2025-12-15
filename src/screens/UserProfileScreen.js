@@ -24,6 +24,8 @@ import {
 } from '../utils/followService';
 import { sanitizeSubRoles } from '../utils/roleUtils';
 import SubRolePills from '../components/SubRolePills';
+import { deriveVerificationStatus } from '../utils/profileCompletion';
+import { ensureRestrictedAccessOrAlert } from '../utils/featureAccess';
 
 const DEFAULT_AVATAR = require('../../assets/shahriar-kabir.jpg');
 
@@ -176,6 +178,9 @@ const UserProfileScreen = ({ route, navigation }) => {
       Alert.alert('Please sign in', 'Log in to start a conversation with this member.');
       return;
     }
+    if (!ensureRestrictedAccessOrAlert({ profile: user, Alert, navigation, messageTitle: 'Messaging locked' })) {
+      return;
+    }
     if (!messagingAllowed) {
       Alert.alert(
         'Messaging unavailable',
@@ -273,7 +278,7 @@ const UserProfileScreen = ({ route, navigation }) => {
                 fallbackLabel={profile.role}
               />
               <Text style={styles.institution}>{profile.institution}</Text>
-              {profile.status === 'approved' && (
+              {deriveVerificationStatus(profile) === 'verified' && (
                 <View style={styles.verifiedPill}>
                   <Ionicons name="shield-checkmark" size={16} color={colors.white} />
                   <Text style={styles.verifiedText}>Verified</Text>

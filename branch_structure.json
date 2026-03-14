@@ -1,0 +1,39 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "aliur",
+    "copilot/fix-login-button-error",
+    "farhad-dev",
+    "kabir_test",
+    "main",
+    "staging",
+    "staging-farhad",
+    "staging-kabir",
+    "staging-koushik",
+    "test"
+  ],
+  "parent": {
+    "aliur": "main",
+    "copilot/fix-login-button-error": "main",
+    "farhad-dev": "main",
+    "kabir_test": "main",
+    "main": null,
+    "staging": "main",
+    "staging-farhad": "staging",
+    "staging-kabir": "staging",
+    "staging-koushik": "staging",
+    "test": "main"
+  },
+  "order": [
+    "main",
+    "aliur",
+    "copilot/fix-login-button-error",
+    "farhad-dev",
+    "kabir_test",
+    "staging",
+    "test",
+    "staging-farhad",
+    "staging-kabir",
+    "staging-koushik"
+  ]
+}

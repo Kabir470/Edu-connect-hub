@@ -114,7 +114,21 @@ export const AuthProvider = ({ children }) => {
 
   // ✅ Login
   const signIn = async ({ email, password, role }) => {
-    const res = await signInWithEmailAndPassword(auth, email, password);
+    let res;
+    try {
+      res = await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+      const friendlyMessages = {
+        'auth/user-not-found': 'No account found with this email.',
+        'auth/wrong-password': 'Incorrect password. Please try again.',
+        'auth/invalid-email': 'Invalid email address.',
+        'auth/invalid-credential': 'Incorrect email or password. Please try again.',
+        'auth/too-many-requests': 'Too many failed attempts. Please try again later.',
+        'auth/user-disabled': 'This account has been disabled.',
+        'auth/network-request-failed': 'Network error. Please check your connection.',
+      };
+      throw new Error(friendlyMessages[e.code] || e.message);
+    }
     const uid = res.user.uid;
     // Fetch user doc
     let userDocData = null;
@@ -126,6 +140,7 @@ export const AuthProvider = ({ children }) => {
     }
     const userData = buildSessionUser(res.user, userDocData || { role, email });
     await persistUser(userData);
+    return userData;
   };
 
   // ✅ Logout

@@ -5,6 +5,7 @@ import colors from '../constants/colors';
 
 const AppButton = ({ title, onPress, icon, loading, disabled, style, textStyle }) => {
   const isDisabled = disabled || loading;
+  const indicatorColor = textStyle?.color || colors.white;
   return (
     <TouchableOpacity
       activeOpacity={0.9}
@@ -13,10 +14,10 @@ const AppButton = ({ title, onPress, icon, loading, disabled, style, textStyle }
       disabled={isDisabled}
     >
       {loading ? (
-        <ActivityIndicator color={colors.white} />
+        <ActivityIndicator color={indicatorColor} />
       ) : (
         <>
-          {icon ? <Ionicons name={icon} size={20} color={colors.white} style={{ marginRight: 8 }} /> : null}
+          {icon ? <Ionicons name={icon} size={20} color={indicatorColor} style={{ marginRight: 8 }} /> : null}
           <Text style={[styles.text, textStyle]}>{title}</Text>
         </>
       )}

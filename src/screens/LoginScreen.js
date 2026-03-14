@@ -109,7 +109,7 @@ const LoginScreen = ({navigation}) => {
           <AppButton title="Sign In" icon="log-in-outline" onPress={handleLogin} loading={loading} />
 
           {/* Sign Up Button */}
-          <AppButton textStyle={{color: 'black'}} style={{backgroundColor: 'white', marginTop: 15}} title="Sign Up" icon="log-in-outline" onPress={handleSignUp} loading={loading} />
+          <AppButton textStyle={{color: 'black'}} style={{backgroundColor: 'white', marginTop: 15}} title="Sign Up" icon="person-add-outline" onPress={handleSignUp} disabled={loading} />
 
 
           <TouchableOpacity style={styles.linkRow}>

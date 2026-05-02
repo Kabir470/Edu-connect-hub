@@ -8,13 +8,13 @@ import { getStorage } from 'firebase/storage';
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyBlXLMnOBvAHxFIrmUL90s0nyerPUKLMwU",
-  authDomain: "educonnecthub-7454e.firebaseapp.com",
-  projectId: "educonnecthub-7454e",
-  storageBucket: "educonnecthub-7454e.firebasestorage.app",
-  messagingSenderId: "40398803151",
-  appId: "1:40398803151:web:6a48d84dbe77569a9067ba",
-  measurementId: "G-LJXHJ3KMNQ"
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: "",
+  measurementId: ""
 };
 
 // Initialize Firebase app once (supports Fast Refresh)

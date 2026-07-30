@@ -1,6 +1,6 @@
 # AcademicConnect - Social Platform for Academics
 
-A comprehensive React Native mobile application designed for students, teachers, researchers, and industry experts to connect, collaborate, and grow together.
+A comprehensive React Native mobile application designed for students, teachers, researchers, collaborate, and grow together.
 
 ## 🎯 Features
 
@@ -30,15 +30,6 @@ A comprehensive React Native mobile application designed for students, teachers,
 - Voice and video call integration (UI ready)
 - Quick actions for new chats and group creation
 
-### 4. Expert Consultation
-
-- Browse expert profiles by category
-- View expert ratings, reviews, and expertise
-- Book consultation sessions with experts
-- Flexible hourly rates based on experience
-- Time slot booking system
-- Payment integration ready
-- Rate limiting based on expert ratings
 
 ### 5. Profile Management
 
@@ -65,7 +56,6 @@ A comprehensive React Native mobile application designed for students, teachers,
 1. **Home** - Social feed with posts
 2. **Jobs** - Job listings and opportunities
 3. **Messages** - Chat conversations
-4. **Experts** - Expert consultation marketplace
 5. **Profile** - User profile and settings
 
 ### Additional Screens:
@@ -75,7 +65,6 @@ A comprehensive React Native mobile application designed for students, teachers,
 - Job Details
 - Create Job
 - Chat (Individual conversation)
-- Expert Detail (with booking)
 
 ## 🚀 Getting Started
 
@@ -128,11 +117,9 @@ DoneWithIt/
 │   │   ├── HomeScreen.js       # Social feed
 │   │   ├── JobsScreen.js       # Job listings
 │   │   ├── MessagesScreen.js   # Chat list
-│   │   ├── ExpertsScreen.js    # Expert marketplace
 │   │   ├── ProfileScreen.js    # User profile
 │   │   ├── PostDetailScreen.js
 │   │   ├── JobDetailScreen.js
-│   │   ├── ExpertDetailScreen.js
 │   │   ├── ChatScreen.js
 │   │   ├── CreatePostScreen.js
 │   │   └── CreateJobScreen.js
@@ -172,7 +159,7 @@ DoneWithIt/
 
 - [ ] Premium subscriptions
 - [ ] Featured job postings
-- [ ] Expert verification badges
+
 - [ ] Ad integration
 
 ## 🎨 Color Palette
@@ -187,10 +174,9 @@ DoneWithIt/
 
 ## 👥 Target Audience
 
-- **Students**: Find internships, connect with peers, seek expert advice
+- **Students**: Find internships, connect with peers,
 - **Researchers**: Share findings, collaborate, find funding opportunities
 - **Teachers/Professors**: Post job openings, offer consultations, network
-- **Industry Experts**: Monetize knowledge, build reputation, recruit talent
 
 ## 📄 License
 
